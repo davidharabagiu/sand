@@ -29,11 +29,14 @@ more important communication between individuals living in autocratic regimes
 with high degree of censorship, which rely on anonymous communication on a 
 daily basis.
 
-The SAND protocol leverages the power of a worldwide P2P network, in which each 
-node can act as proxy for another node to provide anonymity in communication. 
-The main advantage over the BitTorrent protocol is that the identities of the 
-two parties (uploader and downloader) are not known to each other. The chosen 
-solution tries to find the optimal balance between network overhead and 
-security. Each node is, of course, a volunteer in the network, as a part of the 
-bandwidth will have to be donated for the benefit of the collective while the 
-client application is running.
+The SAND protocol (recursive acronym for \textit{SAND Anonymous Distribution}) 
+leverages the power of a worldwide P2P network, in which each node can act as 
+proxy for another node to provide anonymity in communication. The main 
+advantage over the BitTorrent protocol is that the identities of the two 
+parties (uploader and downloader) are not known to each other. This is achieved 
+by the means of a file searching algorithm that recursively propagates a 
+request through the network while probing each node until the file is found. 
+The chosen solution tries to find the optimal balance between network overhead 
+and security. Each node is, of course, a volunteer in the network, as a part of 
+the bandwidth will have to be donated for the benefit of the collective while 
+the client application is running.
