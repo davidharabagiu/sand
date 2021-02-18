@@ -1,0 +1,16 @@
+A protocol which focuses on protecting the anonymity of parties which 
+distribute or download files, while being feasible for large file transfers, 
+would simultaneously solve the main problems of centralized systems - 
+BitTorrent and Tor. The idea is for the two parties (the downloader and 
+uploader) to not have any way of discovering each other's identity, in case one 
+of them is an adversary - the state authority for example. This is achieved 
+through a peer-to-peer network of volunteers which can, at any time, assume the 
+role of proxies carrying control messages and file transfers on other nodes' 
+behalf. A vital component of the protocol is the file searching algorithm: by 
+propagating a search request recursively through the network between nodes in 
+random parts of the world will conceal the identity of the search initiator and 
+make the complete network path unknowable to any individual party. File 
+transfers are performed through a two-layer proxy, which conceals the 
+identities of both uploader and downloader. The network participants are 
+volunteers which sometimes passively donate bandwidth for the benefit of the 
+community.
