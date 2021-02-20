@@ -2,6 +2,13 @@ SAND is an application layer network protocol on top of the TCP/IP stack. It
 makes use of a worldwide P2P network to allow anonymously distributing files on 
 the internet.
 
+The participants in the network are:
+\begin{itemize}
+    \item Peers: Normal nodes which transfer files between them
+    \item DNL Nodes: Nodes which serve the role of providing an initial set of 
+neighbors for new peers. The addresses of these nodes should be publicly known
+\end{itemize}
+
 It can additionally use UPnP to programmatically add a port mapping to the 
 Internet Gateway Device. This will allow incoming messages on the port on which 
 the client application is listening if the device is sitting behind a NAT 
@@ -18,7 +25,14 @@ depending on the request type.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.6\textwidth]{figures/fig1}
-    \caption{Request and reply format}
-    \label{fig:fig1}
+    \scalebox{.33}{\includegraphics{figures/fig1}}
 \end{figure}
+
+Request codes are divided in 8 categories, each having 32 values:
+\begin{itemize}
+    \item Codes 0 - 31: Reserved / experimental
+    \item Codes 32 - 63: Peer discovery
+    \item Codes 64 - 95: File searching
+    \item Codes 96 - 127: File transfer
+    \item Codes 128 - 255 (4 categories): Unused
+\end{itemize}
