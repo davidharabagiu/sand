@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 [[ $# -lt 1 ]] && echo "Usage: $0 FILE_NAME [LINE_LENGTH]" && exit
 FILE_NAME=$1
