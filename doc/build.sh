@@ -4,6 +4,6 @@
 PROJECT_PATH="$1"
 CWD="$(pwd)"
 cd "$PROJECT_PATH/src"
-latexmk -pdf -xelatex -outdir=out main.tex > /dev/null
+latexmk -pdf -outdir=out main.tex > /dev/null
 rm -rf "$CWD/out"
 mv out "$CWD/"
