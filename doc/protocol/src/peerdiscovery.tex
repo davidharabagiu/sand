@@ -1,8 +1,10 @@
 \subsection{PULL (32)}
 
-Request IPv4 addresses of other nodes in other to expand the neighbor table. 
-This message can be sent to an existing neighbor or a DNL node. The number of 
-addresses returned can be smaller than the number of addresses requested.
+The PULL message requests IPv4 addresses of other nodes in order to expand its
+list of neighbors. This message can be sent to an existing neighbor or a DNL
+node. The number of addresses returned can be smaller than the number of
+addresses requested. The list of addresses from the reply can be missing if the
+status code indicates an error.
 
 \begin{figure}[H]
     \centering
@@ -11,27 +13,24 @@ addresses returned can be smaller than the number of addresses requested.
 
 \subsection{PUSH (33)}
 
-Sent by a node to make itself known to its new neighbors of which addresses 
-were retrieved using the PULL message. The nodes which are receiving this 
-message will add address of the message source to the neighbor table. Neither 
-the request nor reply has additional data besides the request and status codes.
+PUSH can be sent by a node to make itself known to its new neighbors of which
+addresses were retrieved using the PULL message. The nodes which are receiving
+this message will add the address of the message source to its list of
+neighbors.
 
 \subsection{BYE (34)}
 
-Sent by a node to notify its neighbors and one of the DNL nodes that it will 
-leave the network so they can remove the node from neighbor table and perform 
-proper cleanup. The request does not have additional data besides the request 
-code. There is no reply associated with the request.
+BYE should be sent by a node to notify its neighbors and one of the DNL nodes
+that it will leave the network so they can remove the node from the neighbor
+list and perform proper cleanup. There is no reply for this message.
 
 \subsection{DEAD (35)}
 
 Used to notify a node's neighbors and DNL nodes that some other nodes were 
 found to be dead (not responding). These dead nodes did not send the BYE 
 message before leaving (this may be due to a software crash or power failure). 
-The nodes which are receiving this message should check if the nodes at the 
-received messages are indeed dead by pinging before removing them from the 
-neighbor table. The reply for this message does not have any data besides the 
-status code.
+The nodes which are receiving this message should check if the specified nodes
+are indeed dead by pinging before removing them from the neighbor list.
 
 \begin{figure}[H]
     \centering
@@ -40,9 +39,8 @@ status code.
 
 \subsection{PING (36)}
 
-Used in conjunction with the DEAD message. Pings a node to confirm than it 
-indeed left the network without sending the BYE message. Neither the request 
-nor reply has additional data besides the request and status codes.
+PING is used in conjunction with the DEAD message. Pings a node to confirm that
+it indeed left the network without sending the BYE message.
 
 \subsection{DNLSYNC (37)}
 

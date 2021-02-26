@@ -1,26 +1,25 @@
 \subsection{REQUESTPROXY (96)}
 
 The REQUESTPROXY message is sent by the parties of the file transfer to verious
-nodes, as described by the content of the OFFER message. The encrypted part
-contains a list of parts data structures. Each part data represents a part of
-the transfered file. Each such part will be sent by the offerer to a different
-node, randomly chosen from its list of neighbors. If he does not have enough
-neighbors, then more addresses should be requested from a DNL node using PULL.
-Before making the offer, the offerer has to request the randomly chosen nodes
-to have the role of proxies in the transfer using the REQUESTPROXY message.
-A node may or may not accept such a request. When accepting, we say that the
-node becomes a "drop point" in this transfer. When the transfer begins, the
-offerer will start uploading a part of the file to each drop point. The party
-which requested the respective file will know where to get the parts - the 
-addresses are recorded in the part data structures.
+nodes in the following mannger: The encrypted part of the OFFER message contains
+a list of "part data" structures. Each part data represents a part of the
+transfered file. Each such part will be sent by the offerer to a different node,
+randomly chosen from its list of neighbors before initiating an offer. If he
+does not have enough neighbors, then more addresses should be requested from a
+DNL node using PULL. Before making the offer, the offerer has to request the
+randomly chosen nodes to have the role of proxies in the transfer, using the
+REQUESTPROXY message. A node may or may not accept such a request. When
+accepting, we say that the node becomes a "drop point" in this transfer. When
+the transfer begins, the offerer will start uploading a part of the file to each
+drop point. The party which requested the respective file will know where to get
+the parts - the addresses are recorded in the part data structures.
 
 This message type will also be utilized by the file requester, as he will not
 retrieve the parts directly from the drop points, but will ask other nodes to
 do this on his behalf. These nodes are called "lift proxies".
 
 The message content only has one field, the size of the part to be handled by
-the proxy. The reply for this message does not have any data besides the status
-code. The status code specified whether or not the node accepts to have the
+the proxy. The status code specified whether or not the node accepts to have the
 role of lift proxy or drop point. The acceptance criteria are dependent on
 implementation or configuration.
 
@@ -31,20 +30,13 @@ implementation or configuration.
 
 \subsection{CANCELPROXYREQUEST (97)}
 
-A proxy request may be canceled by one of the parties, most likely by the
-offerer due to the requester not confirming the transfer and the timeout being
-exceeded. Of course, a potential proxy may also have a timeout as to not keep
-storage space reserved for the file part for a large amount of time. This
-type of message is mostly implementation defined and may not be implemented at
-all if not needed.
-
-Neither the request nor reply has additional data besides the request type and
-status code.
+A proxy request may be canceled by one of the parties. This type of message is
+implementation defined and may not be implemented at all if not needed.
 
 \subsection{INITUPLOAD (98)}
 
-The INITUPLOAD is used to initialize a part upload between nodes in the file
-transfer flow. The upload procedure initialized by this message is performed:
+INITUPLOAD is used to initialize a part upload between nodes. The upload
+procedure initialized by this message is performed:
 \begin{itemize}
     \item From file offerer to drop point.
     \item From lift proxy to file requester.
@@ -52,8 +44,7 @@ transfer flow. The upload procedure initialized by this message is performed:
 
 The OfferId is used to identify the transfer and the file. The drop point will
 know how large is the part based on the REQUESTPROXY message received earlier,
-matched against the address of the message sender. The reply for this message
-does not have any data besides the status code.
+matched against the address of the message sender.
 
 \begin{figure}[H]
     \centering
@@ -71,12 +62,10 @@ thus the message contains the chunk offset in the current part. The proxies
 involved in the transfer won't need to know the offset of the part in the file.
 The part is encrypted by the file offerer before uploading it to the drop
 point, using the transfer key recorded in the OFFER message. In this way, only
-the the two main parties of the transfer are able to view the file, without
-fearing that a third party may intercept the transfer and read the file content.
-A node involved in the transfer does not have to wait for the whole part before
-sending the received chunks to the next hop.
-
-The reply for this message does not have any data besides the status code.
+the the two main parties involved in the transfer are able to view the file
+without fearing that a third party may intercept the transfer and read the file
+content. A node involved in the transfer does not have to wait for the whole
+part before sending the received chunks to the next hop.
 
 \begin{figure}[H]
     \centering
@@ -87,8 +76,7 @@ The reply for this message does not have any data besides the status code.
 
 FETCH is the message send by the file requester to a lift proxy to ask it to
 fetch a file part from a drop point. The "Address" field specifies the address
-of the drop point. The reply for this message does not have any data besides
-the status code.
+of the drop point.
 
 \begin{figure}[H]
     \centering
@@ -99,8 +87,7 @@ the status code.
 
 INITDOWNLOAD is sent by a lift proxy to a drop point, to inform the drop point
 node to start uploading the stored file part associated with the given OfferId
-to the lift proxy. The reply for this message does not have any data besides
-the status code.
+to the lift proxy.
 
 \begin{figure}[H]
     \centering
