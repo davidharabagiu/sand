@@ -5,7 +5,7 @@ This repository contains the specification and implementation of the SAND protoc
 ## Documentation
 
 * [White paper](https://github.com/davidharabagiu/sand/blob/develop/doc/white-paper/sand_white_paper.pdf)
-* [Protocol specification](https://github.com/davidharabagiu/sand/blob/develop/doc/white-paper/sand_protocol.pdf))
+* [Protocol specification](https://github.com/davidharabagiu/sand/blob/develop/doc/protocol/sand_protocol.pdf)
 * [Scientific paper](https://github.com/davidharabagiu/sand/blob/master/doc/thesis/sand-thesis.pdf) (_WIP_)
 * [Detailed thesis](https://github.com/davidharabagiu/sand/blob/master/doc/thesis/sand-thesis.pdf) (_WIP_)
 
