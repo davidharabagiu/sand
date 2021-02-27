@@ -14,6 +14,7 @@ This repository contains the specification and implementation of the SAND protoc
 ### Dependencies
 
 * clang-format 10
+* CMake 3.17
 
 ### Building from git
 
