@@ -13,7 +13,7 @@ This repository contains the specification and implementation of the SAND protoc
 
 ### Dependencies
 
-_WIP_
+* clang-format 10
 
 ### Building from git
 
