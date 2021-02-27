@@ -53,12 +53,14 @@ IncludeCategories:
     Priority: 1
   - Regex: '<boost/.*>'
     Priority: 4
+  - Regex: '<.*\.(h|hpp)>'
+    Priority: 5
   - Regex: '<(c.*|.*\.h)>'
     Priority: 3
   - Regex: '<.*>'
     Priority: 2
   - Regex: '".*"'
-    Priority: 5
+    Priority: 6
 IndentCaseLabels: true
 IndentGotoLabels: false
 IndentPPDirectives: None
