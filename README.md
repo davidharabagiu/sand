@@ -15,6 +15,7 @@ This repository contains the specification and implementation of the SAND protoc
 
 * clang-format 10
 * CMake 3.17
+* Boost 1.75
 
 ### Building from git
 
