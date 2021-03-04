@@ -1,4 +1,4 @@
-#include "sand/test.hpp"
+#include "sand/hello.hpp"
 
 #include <iostream>
 
