@@ -1,0 +1,21 @@
+function(use_glog TARGET)
+    find_library(GLOG_LIB glog $ENV{GLOG_DIR}/lib REQUIRED)
+    target_link_libraries(${TARGET} ${GLOG_LIB})
+    target_include_directories(${TARGET} SYSTEM PRIVATE $ENV{GLOG_DIR}/include)
+endfunction()
+
+function(use_gtest_gmock TARGET)
+    find_library(GTEST_LIB gtest $ENV{GTEST_DIR}/lib REQUIRED)
+    find_library(GMOCK_LIB gmock $ENV{GTEST_DIR}/lib REQUIRED)
+    target_link_libraries(${TARGET} ${GTEST_DIR} ${GMOCK_DIR})
+    target_include_directories(${TARGET} SYSTEM PRIVATE $ENV{GTEST_DIR}/include)
+endfunction()
+
+function(add_boost_includes TARGET)
+    target_include_directories(${TARGET} SYSTEM PRIVATE $ENV{BOOST_DIR}/include)
+endfunction()
+
+function(use_boost_lib TARGET LIB_NAME)
+    find_library(BOOST_LIB boost_${LIB_NAME} $ENV{BOOST_DIR}/lib REQUIRED)
+    target_link_libraries(${TARGET} ${BOOST_LIB})
+endfunction()
