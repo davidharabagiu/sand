@@ -18,6 +18,7 @@ This repository contains the specification and implementation of the SAND protoc
 * Boost 1.75
 * GTest 1.10
 * GMock 1.10
+* glog 0.4
 
 ### Building from git
 

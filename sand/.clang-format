@@ -49,9 +49,9 @@ Cpp11BracedListStyle: true
 FixNamespaceComments: true
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '<(gtest|gmock)\.h>'
+  - Regex: '<(gtest|gmock)/.*\.(h|hpp)>'
     Priority: 1
-  - Regex: '<boost/.*>'
+  - Regex: '<(boost|glog)/.*\.(h|hpp)>'
     Priority: 4
   - Regex: '<.*\.(h|hpp)>'
     Priority: 5
