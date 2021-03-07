@@ -1,17 +1,14 @@
 cmake_minimum_required(VERSION 3.17)
 project(sandcli)
 
+include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
+include(${SAND_CMAKE_SCRIPTS_DIR}/third_party_libs.cmake REQUIRED)
+
 file(GLOB_RECURSE SANDCLI_SOURCES ${CMAKE_SOURCE_DIR}/libsand *.cpp)
-
-find_library(GLOG_LIB glog $ENV{GLOG_DIR}/lib)
-
 add_executable(sandc ${SANDCLI_SOURCES})
-target_link_libraries(sandc
-        sand
-        ${GLOG_LIB})
-target_include_directories(sandc
-        PUBLIC ${CMAKE_SOURCE_DIR}/libsand/include
-        PRIVATE $ENV{GLOG_DIR}/include)
 
-install(TARGETS sandc
-        DESTINATION ${CMAKE_INSTALL_PREFIX})
+target_link_libraries(sandc sand)
+target_include_directories(sandc PUBLIC ${CMAKE_SOURCE_DIR}/libsand/include)
+use_glog(sandc)
+
+install(TARGETS sandc DESTINATION ${CMAKE_INSTALL_PREFIX})
