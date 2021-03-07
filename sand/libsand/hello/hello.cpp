@@ -2,7 +2,18 @@
 
 #include <iostream>
 
-void sand::PrintHello()
+#include <glog/logging.h>
+
+SAND_API_CTOR void init()
 {
-    std::cout << "Build test\n";
+}
+
+SAND_API_DTOR void uninit()
+{
+    LOG(INFO) << "Unloading libsand";
+}
+
+void sand::LogSomething()
+{
+    LOG(INFO) << "Hello";
 }
