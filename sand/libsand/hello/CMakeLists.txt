@@ -1,15 +1,19 @@
 cmake_minimum_required(VERSION 3.17)
 project(libsand_hello)
 
+set(TARGET_NAME sand)
+
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
-include(${SAND_CMAKE_SCRIPTS_DIR}/third_party_libs.cmake REQUIRED)
 
-file(GLOB_RECURSE SRC_FILES ${CMAKE_SOURCE_DIR}/libsand/hello *.cpp)
-add_library(sand SHARED ${SRC_FILES})
+file(GLOB_RECURSE SRC_FILES . *.cpp)
+add_library(${TARGET_NAME} SHARED ${SRC_FILES})
 
-target_compile_definitions(sand PRIVATE SAND_BUILD_SHARED_LIB)
-target_include_directories(sand PUBLIC ${CMAKE_SOURCE_DIR}/libsand/include)
-use_glog(sand)
+target_compile_definitions(${TARGET_NAME} PRIVATE SAND_BUILD_SHARED_LIB)
+target_include_directories(${TARGET_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/libsand/include)
 
-install(TARGETS sand DESTINATION ${CMAKE_INSTALL_PREFIX})
+find_library(GLOG_LIB glog REQUIRED)
+find_library(CRYPTO_LIB crypto REQUIRED)
+target_link_libraries(${TARGET_NAME} ${GLOG_LIB} ${CRYPTO_LIB})
+
+install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX})
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/libsand/include DESTINATION .)
