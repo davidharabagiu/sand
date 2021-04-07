@@ -51,7 +51,7 @@ IncludeBlocks: Regroup
 IncludeCategories:
   - Regex: '<(gtest|gmock)/.*\.(h|hpp)>'
     Priority: 1
-  - Regex: '<(boost|glog)/.*\.(h|hpp)>'
+  - Regex: '<(boost|glog|openssl)/.*\.(h|hpp)>'
     Priority: 4
   - Regex: '<.*\.(h|hpp)>'
     Priority: 5
