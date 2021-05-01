@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <vector>
 
 #include "address.hpp"
 
@@ -36,6 +37,26 @@ struct PartData
     FileSize part_offset;
     PartSize part_size;
 };
+
+struct PullReplyPayload
+{
+    std::vector<Address> peers;
+};
+
+enum class StatusCode
+{
+    OK,
+    UNREACHABLE
+};
+
+template<typename Payload>
+struct Reply
+{
+    StatusCode status_code;
+    Payload    payload;
+};
+using BasicReply = Reply<void>;
+
 }  // namespace sand::protocol
 
 #endif  // SAND_PROTOCOL_MESSAGEFIELDTYPES_HPP_
