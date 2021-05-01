@@ -15,18 +15,18 @@ public:
     using SharedPtrListener = std::shared_ptr<Listener>;
     using WeakPtrListener   = std::weak_ptr<Listener>;
 
-    bool Add(const SharedPtrListener &listener)
+    bool add(const SharedPtrListener &listener)
     {
         return m_listeners.try_emplace(listener.get(), listener).second;
     }
 
-    bool Remove(const SharedPtrListener &listener)
+    bool remove(const SharedPtrListener &listener)
     {
         return m_listeners.erase(listener.get());
     }
 
     template<typename M, typename... Args>
-    void Notify(M method, Args &&... args)
+    void notify(M method, Args &&... args)
     {
         for (auto it = m_listeners.begin(); it != m_listeners.end();)
         {
