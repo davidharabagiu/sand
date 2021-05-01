@@ -3,3 +3,4 @@ project(libsand)
 
 add_subdirectory(hello)
 add_subdirectory(test)
+add_subdirectory(utils)
