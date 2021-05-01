@@ -55,7 +55,7 @@ IncludeCategories:
     Priority: 4
   - Regex: '<.*\.(h|hpp)>'
     Priority: 5
-  - Regex: '<(c.*|.*\.h)>'
+  - Regex: '<.*\.h>'
     Priority: 3
   - Regex: '<.*>'
     Priority: 2

@@ -7,6 +7,7 @@
 #include "listenergroup.hpp"
 
 using namespace ::testing;
+using sand::utils::ListenerGroup;
 
 namespace
 {

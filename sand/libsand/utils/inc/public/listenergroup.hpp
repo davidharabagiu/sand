@@ -5,6 +5,8 @@
 #include <memory>
 #include <utility>
 
+namespace sand::utils
+{
 template<typename T>
 class ListenerGroup
 {
@@ -45,5 +47,6 @@ private:
     using Key = void *;
     std::map<Key, WeakPtrListener> m_listeners;
 };
+}  // namespace sand::utils
 
 #endif  // LIBSAND_UTILS_LISTENERGROUP_HPP_
