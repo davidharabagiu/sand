@@ -5,7 +5,7 @@
 
 namespace sand::protocol
 {
-using Address = uint_least32_t;
+using Address = uint32_t;
 }  // namespace sand::protocol
 
 #endif  // SAND_PROTOCOL_ADDRESS_HPP_

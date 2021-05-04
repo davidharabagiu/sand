@@ -11,7 +11,7 @@ class ProtocolMessageListener
 public:
     virtual ~ProtocolMessageListener() = default;
 
-    virtual void on_message_received(Address from, const PullMessagePayload &payload)     = 0;
+    virtual void on_message_received(Address from, const PullMessagePayload &message)     = 0;
     virtual void on_message_received(Address from, const PushMessage &message)            = 0;
     virtual void on_message_received(Address from, const ByeMessage &message)             = 0;
     virtual void on_message_received(Address from, const DeadMessage &message)            = 0;

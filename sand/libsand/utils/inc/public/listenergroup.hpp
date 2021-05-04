@@ -17,18 +17,18 @@ public:
 
     bool add(const SharedPtrListener &listener)
     {
-        return m_listeners.try_emplace(listener.get(), listener).second;
+        return listeners_.try_emplace(listener.get(), listener).second;
     }
 
     bool remove(const SharedPtrListener &listener)
     {
-        return m_listeners.erase(listener.get());
+        return listeners_.erase(listener.get());
     }
 
     template<typename M, typename... Args>
     void notify(M method, Args &&... args)
     {
-        for (auto it = m_listeners.begin(); it != m_listeners.end();)
+        for (auto it = listeners_.begin(); it != listeners_.end();)
         {
             auto listener = it->second.lock();
             if (listener)
@@ -38,14 +38,14 @@ public:
             }
             else
             {
-                it = m_listeners.erase(it);
+                it = listeners_.erase(it);
             }
         }
     }
 
 private:
     using Key = void *;
-    std::map<Key, WeakPtrListener> m_listeners;
+    std::map<Key, WeakPtrListener> listeners_;
 };
 }  // namespace sand::utils
 

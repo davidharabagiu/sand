@@ -11,19 +11,19 @@
 namespace sand::protocol
 {
 using Timestamp     = std::chrono::time_point<std::chrono::system_clock>;
-using SearchId      = uint_least64_t;
-using OfferId       = uint_least64_t;
-using Byte          = uint_least8_t;
+using SearchId      = uint64_t;
+using OfferId       = uint64_t;
+using Byte          = uint8_t;
 using NodePublicKey = std::array<Byte, 128>;
 using AHash         = std::array<Byte, 92>;
 using TransferKey   = std::array<Byte, 16>;
-using PartSize      = uint_least32_t;
-using FileSize      = uint_least64_t;
+using PartSize      = uint32_t;
+using FileSize      = uint64_t;
 
 struct PullMessage
 {
-    Address       to;
-    uint_least8_t address_count
+    Address to;
+    uint8_t address_count
 };
 
 struct PushMessage
