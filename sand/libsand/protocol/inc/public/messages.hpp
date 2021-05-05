@@ -4,9 +4,12 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "address.hpp"
+#include "messageserializer.hpp"
 
 namespace sand::protocol
 {
@@ -20,39 +23,119 @@ using TransferKey   = std::array<Byte, 16>;
 using PartSize      = uint32_t;
 using FileSize      = uint64_t;
 
-struct PullMessage
+enum class RequestCode : uint8_t
 {
-    Address to;
-    uint8_t address_count
+    PULL            = 32,
+    PUSH            = 33,
+    BYE             = 34,
+    DEAD            = 35,
+    PING            = 36,
+    DNLSYNC         = 37,
+    SEARCH          = 64,
+    OFFER           = 65,
+    UNCACHE         = 66,
+    CONFIRMTRANSFER = 67,
+    REQUESTPROXY    = 96,
+    INITUPLOAD      = 98,
+    UPLOAD          = 99,
+    FETCH           = 100,
+    INITDOWNLOAD    = 101
 };
 
-struct PushMessage
+struct Message
 {
-    Address to;
+    const RequestCode request_code;
+
+    explicit Message(RequestCode code)
+        : request_code {code}
+    {
+    }
+
+    virtual ~Message() = default;
+    virtual std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const = 0;
 };
 
-struct ByeMessage
+struct PullMessage : public Message
 {
-    Address to;
+    uint8_t address_count;
+
+    PullMessage()
+        : Message {RequestCode::PULL}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct DeadMessage
+struct PushMessage : public Message
 {
-    Address              to;
-    std::vector<Address> nodes;
+    PushMessage()
+        : Message {RequestCode::PUSH}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct PingMessage
+struct ByeMessage : public Message
 {
-    Address to;
+    ByeMessage()
+        : Message {RequestCode::BYE}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct DNLSyncMessage
+struct DeadMessage : public Message
+{
+    std::vector<network::IPv4Address> nodes;
+
+    DeadMessage()
+        : Message {RequestCode::DEAD}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
+};
+
+struct PingMessage : public Message
+{
+    PingMessage()
+        : Message {RequestCode::PING}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
+};
+
+struct DNLSyncMessage : public Message
 {
     struct Entry
     {
-        Timestamp timestamp;
-        Address   address;
+        Timestamp            timestamp;
+        network::IPv4Address address;
         enum
         {
             ADD_ADDRESS,
@@ -60,78 +143,223 @@ struct DNLSyncMessage
         } action;
     };
 
-    Address            to;
     std::vector<Entry> entries;
+
+    DNLSyncMessage()
+        : Message {RequestCode::DNLSYNC}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct SearchMessage
+struct SearchMessage : public Message
 {
-    Address       to;
     SearchId      search_id;
     NodePublicKey sender_public_key;
     AHash         file_hash;
+
+    SearchMessage()
+        : Message {RequestCode::SEARCH}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct OfferMessage
+struct OfferMessage : public Message
 {
     struct PartData
     {
-        Address  drop_point;
-        FileSize part_offset;
-        PartSize part_size;
+        network::IPv4Address drop_point;
+        FileSize             part_offset;
+        PartSize             part_size;
     };
 
-    Address               to;
     SearchId              search_id;
     OfferId               offer_id;
     NodePublicKey         receiver_public_key;
     TransferKey           transfer_key;
     std::vector<PartData> parts;
+
+    OfferMessage()
+        : Message {RequestCode::OFFER}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct UncacheMessage
+struct UncacheMessage : public Message
 {
-    Address to;
-    AHash   file_hash;
+    AHash file_hash;
+
+    UncacheMessage()
+        : Message {RequestCode::UNCACHE}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct ConfirmTransferMessage
+struct ConfirmTransferMessage : public Message
 {
-    Address to;
     OfferId offer_id;
+
+    ConfirmTransferMessage()
+        : Message {RequestCode::CONFIRMTRANSFER}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct RequestProxyMessage
+struct RequestProxyMessage : public Message
 {
-    Address  to;
     PartSize part_size;
+
+    RequestProxyMessage()
+        : Message {RequestCode::REQUESTPROXY}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct InitUploadMessage
+struct InitUploadMessage : public Message
 {
-    Address to;
     OfferId offer_id;
+
+    InitUploadMessage()
+        : Message {RequestCode::INITUPLOAD}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct UploadMessage
+struct UploadMessage : public Message
 {
-    Address           to;
     PartSize          offset;
     std::vector<Byte> data;
+
+    UploadMessage()
+        : Message {RequestCode::UPLOAD}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct FetchMessage
+struct FetchMessage : public Message
 {
-    Address to;
-    OfferId offer_id;
-    Address drop_point;
+    OfferId              offer_id;
+    network::IPv4Address drop_point;
+
+    FetchMessage()
+        : Message {RequestCode::FETCH}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
 
-struct InitDownloadMessage
+struct InitDownloadMessage : public Message
 {
-    Address to;
     OfferId offer_id;
+
+    InitDownloadMessage()
+        : Message {RequestCode::INITDOWNLOAD}
+    {
+    }
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
 };
+
+enum class StatusCode : uint8_t
+{
+    OK          = 0,
+    UNREACHABLE = 1
+};
+
+struct BasicReply
+{
+    StatusCode status_code;
+
+    virtual ~BasicReply() = default;
+
+    virtual std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const
+    {
+        return serializer->serialize(*this);
+    }
+};
+
+struct PullReply : public BasicReply
+{
+    std::vector<network::IPv4Address> peers;
+
+    std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
+};
+
+template<RequestCode>
+struct ReplyType
+{
+    using type = BasicReply;
+};
+
+template<>
+struct ReplyType<RequestCode::PULL>
+{
+    using type = PullReply;
+};
+
+template<RequestCode C>
+using ReplyType_t = typename ReplyType<C>::type;
 
 }  // namespace sand::protocol
 
