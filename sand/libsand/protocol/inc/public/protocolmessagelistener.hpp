@@ -2,10 +2,26 @@
 #define SAND_PROTOCOL_PROTOCOLMESSAGELISTENER_HPP_
 
 #include "address.hpp"
-#include "messages.hpp"
 
 namespace sand::protocol
 {
+// Forward declarations
+struct PullMessage;
+struct PushMessage;
+struct ByeMessage;
+struct DeadMessage;
+struct PingMessage;
+struct DNLSyncMessage;
+struct SearchMessage;
+struct OfferMessage;
+struct UncacheMessage;
+struct ConfirmTransferMessage;
+struct RequestProxyMessage;
+struct InitUploadMessage;
+struct UploadMessage;
+struct FetchMessage;
+struct InitDownloadMessage;
+
 class ProtocolMessageListener
 {
 public:

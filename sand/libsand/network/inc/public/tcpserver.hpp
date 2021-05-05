@@ -1,6 +1,8 @@
 #ifndef SAND_NETWORK_TCPSERVER_HPP_
 #define SAND_NETWORK_TCPSERVER_HPP_
 
+#include <memory>
+
 namespace sand::network
 {
 class TCPMessageListener;
