@@ -2,29 +2,13 @@
 #define SAND_PROTOCOL_MESSAGESERIALIZER_HPP_
 
 #include <cstdint>
-#include <optional>
 #include <vector>
+
+#include "messages_decl.hpp"
 
 namespace sand::protocol
 {
 // Forward declarations
-struct PullMessage;
-struct PushMessage;
-struct ByeMessage;
-struct DeadMessage;
-struct PingMessage;
-struct DNLSyncMessage;
-struct SearchMessage;
-struct OfferMessage;
-struct UncacheMessage;
-struct ConfirmTransferMessage;
-struct RequestProxyMessage;
-struct InitUploadMessage;
-struct UploadMessage;
-struct FetchMessage;
-struct InitDownloadMessage;
-struct BasicReply;
-struct PullReply;
 class RequestDeserializationResultReceptor;
 
 class MessageSerializer

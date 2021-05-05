@@ -5,6 +5,7 @@
 #include "messages.hpp"
 #include "messageserializer.hpp"
 #include "protocolmessagelistener.hpp"
+#include "requestdeserializationresultreceptor.hpp"
 #include "tcpsender.hpp"
 #include "tcpserver.hpp"
 

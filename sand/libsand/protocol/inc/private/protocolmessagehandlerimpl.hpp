@@ -4,19 +4,19 @@
 #include <memory>
 
 #include "listenergroup.hpp"
-#include "messages.hpp"
 #include "protocolmessagehandler.hpp"
-#include "requestdeserializationresultreceptor.hpp"
 #include "tcpmessagelistener.hpp"
 
 namespace sand::network
 {
+// Forward declarations
 class TCPSender;
 class TCPServer;
 }  // namespace sand::network
 
 namespace sand::protocol
 {
+// Forward declarations
 class MessageSerializer;
 
 class ProtocolMessageHandlerImpl
