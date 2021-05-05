@@ -5,7 +5,7 @@ set(TARGET_NAME network)
 
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
 
-file(GLOB_RECURSE SRC_FILES src *.cpp)
+file(GLOB_RECURSE SRC_FILES src/*.cpp)
 add_library(${TARGET_NAME} ${SRC_FILES})
 
 find_library(GLOG_LIB glog REQUIRED)

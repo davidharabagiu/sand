@@ -59,6 +59,8 @@ IncludeCategories:
     Priority: 3
   - Regex: '<.*>'
     Priority: 2
+  - Regex: '".*_mock\.(h|hpp)"'
+    Priority: 7
   - Regex: '".*"'
     Priority: 6
 IndentCaseLabels: true
