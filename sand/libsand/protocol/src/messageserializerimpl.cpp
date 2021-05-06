@@ -29,143 +29,276 @@ static auto serialize_field(const T &field, OutputIt dest)
 #endif  // IS_BIG_ENDIAN
 }
 
+template<typename Iterator>
+static auto check_distance(Iterator begin, size_t dist, Iterator end)
+    -> std::enable_if_t<std::is_same_v<typename std::iterator_traits<Iterator>::iterator_category,
+                            std::random_access_iterator_tag>,
+        bool>
+{
+    std::advance(begin, dist);
+    if (std::distance(begin, end) < 0)
+    {
+        LOG(WARNING) << "Cannot read past end iterator";
+        return false;
+    }
+    return true;
+}
+
 template<typename T, typename InputIt>
-static auto deserialize_field(T &field, InputIt src_begin)
+static auto deserialize_field(T &field, InputIt src_begin, InputIt src_end, bool &ok)
     -> std::enable_if_t<std::is_pod_v<T>, InputIt>
 {
+    if (!check_distance(src_begin, sizeof(T), src_end))
+    {
+        ok = false;
+        return src_begin;
+    }
+
     auto dest = reinterpret_cast<uint8_t *>(&field);
+
 #ifdef IS_BIG_ENDIAN
     std::copy_n(std::make_reverse_iterator(src_begin), src_count, dest);
 #else
     std::copy_n(src_begin, sizeof(T), dest);
 #endif  // IS_BIG_ENDIAN
     std::advance(src_begin, sizeof(T));
+
+    ok = true;
     return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(PullMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    PullMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.address_count, src);
-    return src;
+    ok        = true;
+    src_begin = deserialize_field(message.address_count, src_begin, src_end, ok);
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(DeadMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    DeadMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
+    ok = true;
     uint8_t address_count;
-    src = deserialize_field(address_count, src);
+    src_begin = deserialize_field(address_count, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
     message.nodes.resize(address_count);
     for (auto &addr : message.nodes)
     {
-        src = deserialize_field(addr, src);
+        src_begin = deserialize_field(addr, src_begin, src_end, ok);
+        if (!ok)
+        {
+            return src_begin;
+        }
     }
-    return src;
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(DNLSyncMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    DNLSyncMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
+    ok = true;
     uint8_t entry_count;
-    src = deserialize_field(entry_count, src);
+    src_begin = deserialize_field(entry_count, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
     message.entries.resize(entry_count);
     for (auto &entry : message.entries)
     {
         uint64_t ts;
-        src = deserialize_field(ts, src);
-        src = deserialize_field(entry.address, src);
-        src = deserialize_field(entry.action, src);
+
+        src_begin = deserialize_field(ts, src_begin, src_end, ok);
+        if (!ok)
+        {
+            return src_begin;
+        }
+
+        src_begin = deserialize_field(entry.address, src_begin, src_end, ok);
+        if (!ok)
+        {
+            return src_begin;
+        }
+
+        src_begin = deserialize_field(entry.action, src_begin, src_end, ok);
+        if (!ok)
+        {
+            return src_begin;
+        }
 
         entry.timestamp = Timestamp(std::chrono::milliseconds(ts));
     }
-    return src;
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(SearchMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    SearchMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.search_id, src);
-    std::copy_n(src, 128, message.sender_public_key.begin());
-    std::advance(src, 128);
-    std::copy_n(src, 92, message.file_hash.begin());
-    std::advance(src, 92);
-    return src;
+    ok        = true;
+    src_begin = deserialize_field(message.search_id, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
+
+    if (!check_distance(src_begin, 128, src_end))
+    {
+        ok = false;
+        return src_begin;
+    }
+    std::copy_n(src_begin, 128, message.sender_public_key.begin());
+    std::advance(src_begin, 128);
+
+    if (!check_distance(src_begin, 92, src_end))
+    {
+        ok = false;
+        return src_begin;
+    }
+    std::copy_n(src_begin, 92, message.file_hash.begin());
+    std::advance(src_begin, 92);
+
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(OfferMessage & /*message*/, InputIt src)
+static InputIt deserialize_payload(
+    OfferMessage & /*message*/, InputIt src_begin, InputIt /*src_end*/, bool &ok)
 {
     // TBI
-    return src;
+    ok = true;
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(UncacheMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    UncacheMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    std::copy_n(src, 92, message.file_hash.begin());
-    std::advance(src, 92);
-    return src;
+    ok = true;
+
+    if (!check_distance(src_begin, 92, src_end))
+    {
+        ok = false;
+        return src_begin;
+    }
+    std::copy_n(src_begin, 92, message.file_hash.begin());
+    std::advance(src_begin, 92);
+
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(ConfirmTransferMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    ConfirmTransferMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.offer_id, src);
-    return src;
+    ok        = true;
+    src_begin = deserialize_field(message.offer_id, src_begin, src_end, ok);
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(RequestProxyMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    RequestProxyMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.part_size, src);
-    return src;
+    ok        = true;
+    src_begin = deserialize_field(message.part_size, src_begin, src_end, ok);
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(InitUploadMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    InitUploadMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.offer_id, src);
-    return src;
+    ok        = true;
+    src_begin = deserialize_field(message.offer_id, src_begin, src_end, ok);
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(UploadMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    UploadMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.offset, src);
+    ok = true;
+
+    src_begin = deserialize_field(message.offset, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
+
     uint32_t data_size;
-    src = deserialize_field(data_size, src);
+    src_begin = deserialize_field(data_size, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
+
+    if (!check_distance(src_begin, data_size, src_end))
+    {
+        ok = false;
+        return src_begin;
+    }
     message.data.resize(data_size);
-    std::copy_n(src, data_size, message.data.begin());
-    std::advance(src, data_size);
-    return src;
+    std::copy_n(src_begin, data_size, message.data.begin());
+    std::advance(src_begin, data_size);
+
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(FetchMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    FetchMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.offer_id, src);
-    src = deserialize_field(message.drop_point, src);
-    return src;
+    ok = true;
+
+    src_begin = deserialize_field(message.offer_id, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
+    src_begin = deserialize_field(message.drop_point, src_begin, src_end, ok);
+
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(InitDownloadMessage &message, InputIt src)
+static InputIt deserialize_payload(
+    InitDownloadMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
-    src = deserialize_field(message.offer_id, src);
-    return src;
+    ok        = true;
+    src_begin = deserialize_field(message.offer_id, src_begin, src_end, ok);
+    return src_begin;
 }
 
 template<typename InputIt>
-static InputIt deserialize_payload(PullReply &message, InputIt src)
+static InputIt deserialize_payload(PullReply &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
+    ok = true;
+
     uint8_t address_count;
-    src = deserialize_field(address_count, src);
+    src_begin = deserialize_field(address_count, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
     message.peers.resize(address_count);
     for (auto &addr : message.peers)
     {
-        src = deserialize_field(addr, src);
+        src_begin = deserialize_field(addr, src_begin, src_end, ok);
+        if (!ok)
+        {
+            return src_begin;
+        }
     }
-    return src;
+
+    return src_begin;
 }
 }  // namespace
 
@@ -423,12 +556,25 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const PullReply &message) 
 void MessageSerializerImpl::deserialize(
     const std::vector<uint8_t> &bytes, MessageDeserializationResultReceptor &receptor) const
 {
-    auto src = bytes.cbegin();
+    auto src_begin = bytes.cbegin();
+    auto src_end   = bytes.cend();
+    bool ok        = true;
 
     MessageCode message_code;
-    src = deserialize_field(message_code, src);
+    src_begin = deserialize_field(message_code, src_begin, src_end, ok);
+    if (!ok)
+    {
+        receptor.error();
+        return;
+    }
+
     RequestId request_id;
-    src = deserialize_field(request_id, src);
+    src_begin = deserialize_field(request_id, src_begin, src_end, ok);
+    if (!ok)
+    {
+        receptor.error();
+        return;
+    }
 
     switch (message_code)
     {
@@ -436,7 +582,12 @@ void MessageSerializerImpl::deserialize(
         {
             PullMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -458,7 +609,12 @@ void MessageSerializerImpl::deserialize(
         {
             DeadMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -473,7 +629,12 @@ void MessageSerializerImpl::deserialize(
         {
             DNLSyncMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -481,7 +642,12 @@ void MessageSerializerImpl::deserialize(
         {
             SearchMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -489,7 +655,12 @@ void MessageSerializerImpl::deserialize(
         {
             OfferMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -497,7 +668,12 @@ void MessageSerializerImpl::deserialize(
         {
             UncacheMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -505,7 +681,12 @@ void MessageSerializerImpl::deserialize(
         {
             ConfirmTransferMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -513,7 +694,12 @@ void MessageSerializerImpl::deserialize(
         {
             RequestProxyMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -521,7 +707,12 @@ void MessageSerializerImpl::deserialize(
         {
             InitUploadMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -529,7 +720,12 @@ void MessageSerializerImpl::deserialize(
         {
             UploadMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -537,7 +733,12 @@ void MessageSerializerImpl::deserialize(
         {
             FetchMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
@@ -545,16 +746,32 @@ void MessageSerializerImpl::deserialize(
         {
             InitDownloadMessage msg;
             msg.request_id = request_id;
-            deserialize_payload(msg, src);
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
             receptor.deserialized(msg);
             break;
         }
         case MessageCode::REPLY:
         {
             StatusCode status_code;
-            src = deserialize_field(status_code, src);
+            src_begin = deserialize_field(status_code, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
+
             MessageCode request_message_code;
-            src = deserialize_field(request_message_code, src);
+            src_begin = deserialize_field(request_message_code, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
 
             switch (request_message_code)
             {
@@ -563,7 +780,12 @@ void MessageSerializerImpl::deserialize(
                     PullReply msg;
                     msg.request_id  = request_id;
                     msg.status_code = status_code;
-                    deserialize_payload(msg, src);
+                    deserialize_payload(msg, src_begin, src_end, ok);
+                    if (!ok)
+                    {
+                        receptor.error();
+                        return;
+                    }
                     receptor.deserialized(msg);
                     break;
                 }
