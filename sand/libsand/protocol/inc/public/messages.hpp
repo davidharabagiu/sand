@@ -136,7 +136,7 @@ struct DNLSyncMessage : public Message
     {
         Timestamp            timestamp;
         network::IPv4Address address;
-        enum
+        enum : uint8_t
         {
             ADD_ADDRESS,
             REMOVE_ADDRESS

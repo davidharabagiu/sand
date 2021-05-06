@@ -26,6 +26,7 @@ public:
     MOCK_METHOD(void, deserialized, (const UploadMessage &), (override));
     MOCK_METHOD(void, deserialized, (const FetchMessage &), (override));
     MOCK_METHOD(void, deserialized, (const InitDownloadMessage &), (override));
+    MOCK_METHOD(void, error, (), (override));
 };
 
 #endif  // SAND_PROTOCOLTEST_REQUESTDESERIALIZATIONRESULTRECEPTOR_MOCK_HPP_

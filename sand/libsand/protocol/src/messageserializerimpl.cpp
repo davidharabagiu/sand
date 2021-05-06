@@ -252,6 +252,7 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const SearchMessage &messa
 
     auto dest = out.begin();
     dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.search_id, dest);
     dest = std::copy(message.sender_public_key.cbegin(), message.sender_public_key.cend(), dest);
     std::copy(message.file_hash.cbegin(), message.file_hash.cend(), dest);
 
@@ -490,7 +491,7 @@ void MessageSerializerImpl::deserialize(
         }
         default:
         {
-            LOG(ERROR) << "Invalid request code: " << static_cast<uint8_t>(request_code);
+            LOG(ERROR) << "Invalid request code: " << int(request_code);
             receptor.error();
             break;
         }
