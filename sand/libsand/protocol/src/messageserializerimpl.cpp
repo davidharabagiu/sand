@@ -9,8 +9,8 @@
 
 #include <glog/logging.h>
 
+#include "messagedeserializationresultreceptor.hpp"
 #include "messages.hpp"
-#include "requestdeserializationresultreceptor.hpp"
 
 namespace sand::protocol
 {
@@ -172,10 +172,10 @@ static InputIt deserialize_payload(PullReply &message, InputIt src)
 std::vector<uint8_t> MessageSerializerImpl::serialize(const PullMessage &message) const
 {
     std::vector<uint8_t> out(
-        sizeof(message.request_code) + sizeof(message.request_id) + sizeof(message.address_count));
+        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.address_count));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     serialize_field(message.address_count, dest);
 
@@ -184,10 +184,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const PullMessage &message
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const PushMessage &message) const
 {
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id));
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     serialize_field(message.request_id, dest);
 
     return out;
@@ -195,10 +195,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const PushMessage &message
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const ByeMessage &message) const
 {
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id));
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     serialize_field(message.request_id, dest);
 
     return out;
@@ -208,11 +208,11 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const DeadMessage &message
 {
     using ListSizeT = uint8_t;
 
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id) +
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
                              sizeof(ListSizeT) + message.nodes.size() * sizeof(message.nodes[0]));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     dest      = serialize_field(
         ListSizeT(std::min(size_t(std::numeric_limits<ListSizeT>::max()), message.nodes.size())),
@@ -227,10 +227,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const DeadMessage &message
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const PingMessage &message) const
 {
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id));
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     serialize_field(message.request_id, dest);
 
     return out;
@@ -243,11 +243,11 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const DNLSyncMessage &mess
 
     size_t entry_size =
         sizeof(message.entries[0].address) + sizeof(message.entries[0].action) + sizeof(TimestampT);
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id) +
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
                              sizeof(ListSizeT) + message.entries.size() * entry_size);
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     dest      = serialize_field(
         ListSizeT(std::min(size_t(std::numeric_limits<ListSizeT>::max()), message.entries.size())),
@@ -267,12 +267,12 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const DNLSyncMessage &mess
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const SearchMessage &message) const
 {
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id) +
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
                              sizeof(message.search_id) + sizeof(message.sender_public_key) +
                              sizeof(message.file_hash));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     dest      = serialize_field(message.search_id, dest);
     dest = std::copy(message.sender_public_key.cbegin(), message.sender_public_key.cend(), dest);
@@ -290,10 +290,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const OfferMessage & /*mes
 std::vector<uint8_t> MessageSerializerImpl::serialize(const UncacheMessage &message) const
 {
     std::vector<uint8_t> out(
-        sizeof(message.request_code) + sizeof(message.request_id) + sizeof(message.file_hash));
+        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.file_hash));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     std::copy(message.file_hash.cbegin(), message.file_hash.cend(), dest);
 
@@ -303,10 +303,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const UncacheMessage &mess
 std::vector<uint8_t> MessageSerializerImpl::serialize(const ConfirmTransferMessage &message) const
 {
     std::vector<uint8_t> out(
-        sizeof(message.request_code) + sizeof(message.request_id) + sizeof(message.offer_id));
+        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.offer_id));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     serialize_field(message.offer_id, dest);
 
@@ -316,10 +316,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const ConfirmTransferMessa
 std::vector<uint8_t> MessageSerializerImpl::serialize(const RequestProxyMessage &message) const
 {
     std::vector<uint8_t> out(
-        sizeof(message.request_code) + sizeof(message.request_id) + sizeof(message.part_size));
+        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.part_size));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     serialize_field(message.part_size, dest);
 
@@ -329,10 +329,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const RequestProxyMessage 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const InitUploadMessage &message) const
 {
     std::vector<uint8_t> out(
-        sizeof(message.request_code) + sizeof(message.request_id) + sizeof(message.offer_id));
+        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.offer_id));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     serialize_field(message.offer_id, dest);
 
@@ -341,12 +341,12 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const InitUploadMessage &m
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const UploadMessage &message) const
 {
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id) +
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
                              sizeof(message.offset) + sizeof(PartSize) +
                              message.data.size() * sizeof(message.data[0]));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     dest      = serialize_field(message.offset, dest);
     dest      = serialize_field(PartSize(message.data.size()), dest);
@@ -357,11 +357,11 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const UploadMessage &messa
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const FetchMessage &message) const
 {
-    std::vector<uint8_t> out(sizeof(message.request_code) + sizeof(message.request_id) +
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
                              sizeof(message.offer_id) + sizeof(message.drop_point));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     dest      = serialize_field(message.offer_id, dest);
     serialize_field(message.drop_point, dest);
@@ -372,10 +372,10 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const FetchMessage &messag
 std::vector<uint8_t> MessageSerializerImpl::serialize(const InitDownloadMessage &message) const
 {
     std::vector<uint8_t> out(
-        sizeof(message.request_code) + sizeof(message.request_id) + sizeof(message.offer_id));
+        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.offer_id));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     serialize_field(message.offer_id, dest);
 
@@ -384,14 +384,14 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const InitDownloadMessage 
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const BasicReply &message) const
 {
-    std::vector<uint8_t> out(2 * sizeof(message.request_code) + sizeof(message.status_code) +
+    std::vector<uint8_t> out(2 * sizeof(message.message_code) + sizeof(message.status_code) +
                              sizeof(message.request_id));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     dest      = serialize_field(message.status_code, dest);
-    serialize_field(message.source_request_code, dest);
+    serialize_field(message.request_message_code, dest);
 
     return out;
 }
@@ -400,15 +400,15 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const PullReply &message) 
 {
     using ListSizeT = uint8_t;
 
-    std::vector<uint8_t> out(2 * sizeof(message.request_code) + sizeof(message.status_code) +
+    std::vector<uint8_t> out(2 * sizeof(message.message_code) + sizeof(message.status_code) +
                              sizeof(message.request_id) + sizeof(ListSizeT) +
                              message.peers.size() * sizeof(message.peers[0]));
 
     auto dest = out.begin();
-    dest      = serialize_field(message.request_code, dest);
+    dest      = serialize_field(message.message_code, dest);
     dest      = serialize_field(message.request_id, dest);
     dest      = serialize_field(message.status_code, dest);
-    dest      = serialize_field(message.source_request_code, dest);
+    dest      = serialize_field(message.request_message_code, dest);
     dest      = serialize_field(
         ListSizeT(std::min(size_t(std::numeric_limits<ListSizeT>::max()), message.peers.size())),
         dest);
@@ -421,18 +421,18 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const PullReply &message) 
 }
 
 void MessageSerializerImpl::deserialize(
-    const std::vector<uint8_t> &bytes, RequestDeserializationResultReceptor &receptor) const
+    const std::vector<uint8_t> &bytes, MessageDeserializationResultReceptor &receptor) const
 {
     auto src = bytes.cbegin();
 
-    RequestCode request_code;
-    src = deserialize_field(request_code, src);
+    MessageCode message_code;
+    src = deserialize_field(message_code, src);
     RequestId request_id;
     src = deserialize_field(request_id, src);
 
-    switch (request_code)
+    switch (message_code)
     {
-        case RequestCode::PULL:
+        case MessageCode::PULL:
         {
             PullMessage msg;
             msg.request_id = request_id;
@@ -440,21 +440,21 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::PUSH:
+        case MessageCode::PUSH:
         {
             PushMessage msg;
             msg.request_id = request_id;
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::BYE:
+        case MessageCode::BYE:
         {
             ByeMessage msg;
             msg.request_id = request_id;
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::DEAD:
+        case MessageCode::DEAD:
         {
             DeadMessage msg;
             msg.request_id = request_id;
@@ -462,14 +462,14 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::PING:
+        case MessageCode::PING:
         {
             PingMessage msg;
             msg.request_id = request_id;
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::DNLSYNC:
+        case MessageCode::DNLSYNC:
         {
             DNLSyncMessage msg;
             msg.request_id = request_id;
@@ -477,7 +477,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::SEARCH:
+        case MessageCode::SEARCH:
         {
             SearchMessage msg;
             msg.request_id = request_id;
@@ -485,7 +485,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::OFFER:
+        case MessageCode::OFFER:
         {
             OfferMessage msg;
             msg.request_id = request_id;
@@ -493,7 +493,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::UNCACHE:
+        case MessageCode::UNCACHE:
         {
             UncacheMessage msg;
             msg.request_id = request_id;
@@ -501,7 +501,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::CONFIRMTRANSFER:
+        case MessageCode::CONFIRMTRANSFER:
         {
             ConfirmTransferMessage msg;
             msg.request_id = request_id;
@@ -509,7 +509,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::REQUESTPROXY:
+        case MessageCode::REQUESTPROXY:
         {
             RequestProxyMessage msg;
             msg.request_id = request_id;
@@ -517,7 +517,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::INITUPLOAD:
+        case MessageCode::INITUPLOAD:
         {
             InitUploadMessage msg;
             msg.request_id = request_id;
@@ -525,7 +525,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::UPLOAD:
+        case MessageCode::UPLOAD:
         {
             UploadMessage msg;
             msg.request_id = request_id;
@@ -533,7 +533,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::FETCH:
+        case MessageCode::FETCH:
         {
             FetchMessage msg;
             msg.request_id = request_id;
@@ -541,7 +541,7 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::INITDOWNLOAD:
+        case MessageCode::INITDOWNLOAD:
         {
             InitDownloadMessage msg;
             msg.request_id = request_id;
@@ -549,16 +549,16 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case RequestCode::REPLY:
+        case MessageCode::REPLY:
         {
             StatusCode status_code;
             src = deserialize_field(status_code, src);
-            RequestCode source_request_code;
-            src = deserialize_field(source_request_code, src);
+            MessageCode request_message_code;
+            src = deserialize_field(request_message_code, src);
 
-            switch (source_request_code)
+            switch (request_message_code)
             {
-                case RequestCode::PULL:
+                case MessageCode::PULL:
                 {
                     PullReply msg;
                     msg.request_id  = request_id;
@@ -569,7 +569,7 @@ void MessageSerializerImpl::deserialize(
                 }
                 default:
                 {
-                    BasicReply msg {source_request_code};
+                    BasicReply msg {request_message_code};
                     msg.request_id  = request_id;
                     msg.status_code = status_code;
                     receptor.deserialized(msg);
@@ -580,7 +580,7 @@ void MessageSerializerImpl::deserialize(
         }
         default:
         {
-            LOG(ERROR) << "Invalid request code: " << int(request_code);
+            LOG(ERROR) << "Invalid request code: " << int(message_code);
             receptor.error();
             break;
         }

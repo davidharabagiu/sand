@@ -28,7 +28,7 @@ public:
     [[nodiscard]] std::vector<uint8_t> serialize(const PullReply &message) const override;
 
     void deserialize(const std::vector<uint8_t> &bytes,
-        RequestDeserializationResultReceptor &   receptor) const override;
+        MessageDeserializationResultReceptor &   receptor) const override;
 };
 
 }  // namespace sand::protocol

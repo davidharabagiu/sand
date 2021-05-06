@@ -5,9 +5,9 @@
 #include <memory>
 
 #include "listenergroup.hpp"
+#include "messagedeserializationresultreceptor.hpp"
 #include "messages.hpp"
 #include "protocolmessagehandler.hpp"
-#include "requestdeserializationresultreceptor.hpp"
 #include "tcpmessagelistener.hpp"
 
 namespace sand::network
@@ -31,7 +31,7 @@ public:
     struct PendingReply
     {
         std::promise<std::unique_ptr<BasicReply>> promise;
-        RequestCode                               request_code;
+        MessageCode                               message_code;
     };
 
     ProtocolMessageHandlerImpl(std::shared_ptr<network::TCPSender> tcp_sender,
@@ -51,7 +51,7 @@ public:
     void on_message_received(network::IPv4Address from, const uint8_t *data, size_t len) override;
 
 private:
-    class RequestDeserializationResultReceptorImpl : public RequestDeserializationResultReceptor
+    class RequestDeserializationResultReceptorImpl : public MessageDeserializationResultReceptor
     {
     public:
         RequestDeserializationResultReceptorImpl(

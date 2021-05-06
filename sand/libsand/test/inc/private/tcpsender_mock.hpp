@@ -1,5 +1,5 @@
-#ifndef SAND_PROTOCOLTEST_TCPSENDER_MOCK_HPP_
-#define SAND_PROTOCOLTEST_TCPSENDER_MOCK_HPP_
+#ifndef SAND_TEST_TCPSENDER_MOCK_HPP_
+#define SAND_TEST_TCPSENDER_MOCK_HPP_
 
 #include <gmock/gmock.h>
 
@@ -13,4 +13,4 @@ public:
     MOCK_METHOD(bool, send, (IPv4Address, const uint8_t *, size_t), (override));
 };
 
-#endif  // SAND_PROTOCOLTEST_TCPSENDER_MOCK_HPP_
+#endif  // SAND_TEST_TCPSENDER_MOCK_HPP_

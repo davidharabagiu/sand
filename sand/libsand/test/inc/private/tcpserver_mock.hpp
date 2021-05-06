@@ -1,5 +1,5 @@
-#ifndef SAND_PROTOCOLTEST_TCPSERVER_MOCK_HPP_
-#define SAND_PROTOCOLTEST_TCPSERVER_MOCK_HPP_
+#ifndef SAND_TEST_TCPSERVER_MOCK_HPP_
+#define SAND_TEST_TCPSERVER_MOCK_HPP_
 
 #include <gmock/gmock.h>
 
@@ -15,4 +15,4 @@ public:
     MOCK_METHOD(bool, unregister_listener, (std::shared_ptr<TCPMessageListener>), (override));
 };
 
-#endif  // SAND_PROTOCOLTEST_TCPSERVER_MOCK_HPP_
+#endif  // SAND_TEST_TCPSERVER_MOCK_HPP_

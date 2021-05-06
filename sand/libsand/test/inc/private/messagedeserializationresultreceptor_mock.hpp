@@ -1,14 +1,14 @@
-#ifndef SAND_PROTOCOLTEST_REQUESTDESERIALIZATIONRESULTRECEPTOR_MOCK_HPP_
-#define SAND_PROTOCOLTEST_REQUESTDESERIALIZATIONRESULTRECEPTOR_MOCK_HPP_
+#ifndef SAND_TEST_MESSAGEDESERIALIZATIONRESULTRECEPTOR_MOCK_HPP_
+#define SAND_TEST_MESSAGEDESERIALIZATIONRESULTRECEPTOR_MOCK_HPP_
 
 #include <gmock/gmock.h>
 
+#include "messagedeserializationresultreceptor.hpp"
 #include "messages.hpp"
-#include "requestdeserializationresultreceptor.hpp"
 
 using namespace sand::protocol;
 
-class RequestDeserializationResultReceptorMock : public RequestDeserializationResultReceptor
+class MessageDeserializationResultReceptorMock : public MessageDeserializationResultReceptor
 {
 public:
     MOCK_METHOD(void, deserialized, (const PullMessage &), (override));
@@ -31,4 +31,4 @@ public:
     MOCK_METHOD(void, error, (), (override));
 };
 
-#endif  // SAND_PROTOCOLTEST_REQUESTDESERIALIZATIONRESULTRECEPTOR_MOCK_HPP_
+#endif  // SAND_TEST_MESSAGEDESERIALIZATIONRESULTRECEPTOR_MOCK_HPP_

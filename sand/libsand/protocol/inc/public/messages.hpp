@@ -25,7 +25,7 @@ using TransferKey   = std::array<Byte, 16>;
 using PartSize      = uint32_t;
 using FileSize      = uint64_t;
 
-enum class RequestCode : uint8_t
+enum class MessageCode : uint8_t
 {
     PULL            = 32,
     PUSH            = 33,
@@ -53,11 +53,11 @@ enum class StatusCode : uint8_t
 
 struct Message
 {
-    const RequestCode request_code;
+    const MessageCode message_code;
     RequestId         request_id {};
 
-    explicit Message(RequestCode code)
-        : request_code {code}
+    explicit Message(MessageCode code)
+        : message_code {code}
         , request_id {}
     {
     }
@@ -72,7 +72,7 @@ struct PullMessage : public Message
     uint8_t address_count {};
 
     PullMessage()
-        : Message {RequestCode::PULL}
+        : Message {MessageCode::PULL}
     {
     }
 
@@ -86,7 +86,7 @@ struct PullMessage : public Message
 struct PushMessage : public Message
 {
     PushMessage()
-        : Message {RequestCode::PUSH}
+        : Message {MessageCode::PUSH}
     {
     }
 
@@ -100,7 +100,7 @@ struct PushMessage : public Message
 struct ByeMessage : public Message
 {
     ByeMessage()
-        : Message {RequestCode::BYE}
+        : Message {MessageCode::BYE}
     {
     }
 
@@ -116,7 +116,7 @@ struct DeadMessage : public Message
     std::vector<network::IPv4Address> nodes;
 
     DeadMessage()
-        : Message {RequestCode::DEAD}
+        : Message {MessageCode::DEAD}
     {
     }
 
@@ -130,7 +130,7 @@ struct DeadMessage : public Message
 struct PingMessage : public Message
 {
     PingMessage()
-        : Message {RequestCode::PING}
+        : Message {MessageCode::PING}
     {
     }
 
@@ -157,7 +157,7 @@ struct DNLSyncMessage : public Message
     std::vector<Entry> entries;
 
     DNLSyncMessage()
-        : Message {RequestCode::DNLSYNC}
+        : Message {MessageCode::DNLSYNC}
     {
     }
 
@@ -175,7 +175,7 @@ struct SearchMessage : public Message
     AHash         file_hash {};
 
     SearchMessage()
-        : Message {RequestCode::SEARCH}
+        : Message {MessageCode::SEARCH}
     {
     }
 
@@ -202,7 +202,7 @@ struct OfferMessage : public Message
     std::vector<PartData> parts;
 
     OfferMessage()
-        : Message {RequestCode::OFFER}
+        : Message {MessageCode::OFFER}
     {
     }
 
@@ -218,7 +218,7 @@ struct UncacheMessage : public Message
     AHash file_hash {};
 
     UncacheMessage()
-        : Message {RequestCode::UNCACHE}
+        : Message {MessageCode::UNCACHE}
     {
     }
 
@@ -234,7 +234,7 @@ struct ConfirmTransferMessage : public Message
     OfferId offer_id {};
 
     ConfirmTransferMessage()
-        : Message {RequestCode::CONFIRMTRANSFER}
+        : Message {MessageCode::CONFIRMTRANSFER}
     {
     }
 
@@ -250,7 +250,7 @@ struct RequestProxyMessage : public Message
     PartSize part_size {};
 
     RequestProxyMessage()
-        : Message {RequestCode::REQUESTPROXY}
+        : Message {MessageCode::REQUESTPROXY}
     {
     }
 
@@ -266,7 +266,7 @@ struct InitUploadMessage : public Message
     OfferId offer_id {};
 
     InitUploadMessage()
-        : Message {RequestCode::INITUPLOAD}
+        : Message {MessageCode::INITUPLOAD}
     {
     }
 
@@ -283,7 +283,7 @@ struct UploadMessage : public Message
     std::vector<Byte> data;
 
     UploadMessage()
-        : Message {RequestCode::UPLOAD}
+        : Message {MessageCode::UPLOAD}
     {
     }
 
@@ -300,7 +300,7 @@ struct FetchMessage : public Message
     network::IPv4Address drop_point {};
 
     FetchMessage()
-        : Message {RequestCode::FETCH}
+        : Message {MessageCode::FETCH}
     {
     }
 
@@ -316,7 +316,7 @@ struct InitDownloadMessage : public Message
     OfferId offer_id {};
 
     InitDownloadMessage()
-        : Message {RequestCode::INITDOWNLOAD}
+        : Message {MessageCode::INITDOWNLOAD}
     {
     }
 
@@ -330,11 +330,11 @@ struct InitDownloadMessage : public Message
 struct BasicReply : public Message
 {
     StatusCode        status_code {};
-    const RequestCode source_request_code;
+    const MessageCode request_message_code;
 
-    explicit BasicReply(RequestCode _source_request_code)
-        : Message {RequestCode::REPLY}
-        , source_request_code {_source_request_code}
+    explicit BasicReply(MessageCode _request_message_code)
+        : Message {MessageCode::REPLY}
+        , request_message_code {_request_message_code}
     {
     }
 
@@ -350,7 +350,7 @@ struct PullReply : public BasicReply
     std::vector<network::IPv4Address> peers;
 
     PullReply()
-        : BasicReply {RequestCode::PULL}
+        : BasicReply {MessageCode::PULL}
     {
     }
 

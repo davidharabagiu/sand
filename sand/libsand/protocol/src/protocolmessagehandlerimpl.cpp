@@ -93,11 +93,11 @@ std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
     if (tcp_sender_->send(to, bytes.data(), bytes.size()))
     {
         pending_replies_.emplace(
-            message.request_id, PendingReply {std::move(reply_promise), message.request_code});
+            message.request_id, PendingReply {std::move(reply_promise), message.message_code});
     }
     else
     {
-        auto reply         = std::make_unique<BasicReply>(message.request_code);
+        auto reply         = std::make_unique<BasicReply>(message.message_code);
         reply->request_id  = message.request_id;
         reply->status_code = StatusCode::UNREACHABLE;
         reply_promise.set_value(std::move(reply));
@@ -236,11 +236,11 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::proce
         LOG(WARNING) << "Stray reply received; Request id = " << reply->request_id;
         return;
     }
-    if (it->second.request_code != reply->source_request_code)
+    if (it->second.message_code != reply->request_message_code)
     {
-        LOG(ERROR) << "Reply source_request_code (" << int(reply->source_request_code)
-                   << ") does not match the corresponding message request_code ("
-                   << int(it->second.request_code) << ")";
+        LOG(ERROR) << "Reply request_message_code (" << int(reply->request_message_code)
+                   << ") does not match the corresponding message message_code ("
+                   << int(it->second.message_code) << ")";
         return;
     }
     it->second.promise.set_value(std::move(reply));

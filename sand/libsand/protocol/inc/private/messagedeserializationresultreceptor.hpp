@@ -1,14 +1,14 @@
-#ifndef SAND_PROTOCOL_REQUESTDESERIALIZATIONRESULTRECEPTOR_HPP_
-#define SAND_PROTOCOL_REQUESTDESERIALIZATIONRESULTRECEPTOR_HPP_
+#ifndef SAND_PROTOCOL_MESSAGEDESERIALIZATIONRESULTRECEPTOR_HPP_
+#define SAND_PROTOCOL_MESSAGEDESERIALIZATIONRESULTRECEPTOR_HPP_
 
 #include "messages_decl.hpp"
 
 namespace sand::protocol
 {
-class RequestDeserializationResultReceptor
+class MessageDeserializationResultReceptor
 {
 public:
-    virtual ~RequestDeserializationResultReceptor() = default;
+    virtual ~MessageDeserializationResultReceptor() = default;
 
     virtual void deserialized(const PullMessage &message)            = 0;
     virtual void deserialized(const PushMessage &message)            = 0;
@@ -31,4 +31,4 @@ public:
 };
 }  // namespace sand::protocol
 
-#endif  // SAND_PROTOCOL_REQUESTDESERIALIZATIONRESULTRECEPTOR_HPP_
+#endif  // SAND_PROTOCOL_MESSAGEDESERIALIZATIONRESULTRECEPTOR_HPP_

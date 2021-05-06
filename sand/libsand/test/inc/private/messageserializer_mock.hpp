@@ -1,11 +1,11 @@
-#ifndef SAND_PROTOCOLTEST_MESSAGESERIALIZER_MOCK_HPP_
-#define SAND_PROTOCOLTEST_MESSAGESERIALIZER_MOCK_HPP_
+#ifndef SAND_TEST_MESSAGESERIALIZER_MOCK_HPP_
+#define SAND_TEST_MESSAGESERIALIZER_MOCK_HPP_
 
 #include <gmock/gmock.h>
 
+#include "messagedeserializationresultreceptor.hpp"
 #include "messages.hpp"
 #include "messageserializer.hpp"
-#include "requestdeserializationresultreceptor.hpp"
 
 using namespace sand::protocol;
 
@@ -31,7 +31,7 @@ public:
     MOCK_METHOD(std::vector<uint8_t>, serialize, (const BasicReply &), (const, override));
     MOCK_METHOD(std::vector<uint8_t>, serialize, (const PullReply &), (const, override));
     MOCK_METHOD(void, deserialize,
-        (const std::vector<uint8_t> &, RequestDeserializationResultReceptor &), (const, override));
+        (const std::vector<uint8_t> &, MessageDeserializationResultReceptor &), (const, override));
 };
 
-#endif  // SAND_PROTOCOLTEST_MESSAGESERIALIZER_MOCK_HPP_
+#endif  // SAND_TEST_MESSAGESERIALIZER_MOCK_HPP_

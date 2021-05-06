@@ -10,7 +10,7 @@
 
 #include "messageserializerimpl.hpp"
 
-#include "requestdeserializationresultreceptor_mock.hpp"
+#include "messagedeserializationresultreceptor_mock.hpp"
 
 using namespace ::testing;
 using namespace ::sand::protocol;
@@ -25,7 +25,7 @@ protected:
     {
         std::srand(unsigned(std::time(nullptr)));
         result_receptor_mock_ =
-            std::make_unique<NiceMock<RequestDeserializationResultReceptorMock>>();
+            std::make_unique<NiceMock<MessageDeserializationResultReceptorMock>>();
     }
 
     static IPv4Address to_ipv4_addr(const std::string &str)
@@ -53,7 +53,7 @@ protected:
         }
     }
 
-    std::unique_ptr<RequestDeserializationResultReceptorMock> result_receptor_mock_;
+    std::unique_ptr<MessageDeserializationResultReceptorMock> result_receptor_mock_;
 };
 }  // namespace
 
@@ -268,7 +268,7 @@ TEST_F(MessageSerializerTest, SerializeRequest_InitDownload)
 
 TEST_F(MessageSerializerTest, SerializeReply_Basic)
 {
-    BasicReply reply {RequestCode::PING};
+    BasicReply reply {MessageCode::PING};
     reply.request_id  = 15;
     reply.status_code = StatusCode::UNREACHABLE;
     std::vector<uint8_t> expected {
@@ -303,7 +303,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Pull)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(
-            Matcher<const PullMessage &>(AllOf(Field(&PullMessage::request_code, RequestCode::PULL),
+            Matcher<const PullMessage &>(AllOf(Field(&PullMessage::message_code, MessageCode::PULL),
                 Field(&PullMessage::request_id, 1), Field(&PullMessage::address_count, 5)))))
         .Times(1);
 
@@ -316,7 +316,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Push)
 
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_, deserialized(Matcher<const PushMessage &>(AllOf(
-                                            Field(&PushMessage::request_code, RequestCode::PUSH),
+                                            Field(&PushMessage::message_code, MessageCode::PUSH),
                                             Field(&PushMessage::request_id, 2)))))
         .Times(1);
 
@@ -329,7 +329,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Bye)
 
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_, deserialized(Matcher<const ByeMessage &>(AllOf(
-                                            Field(&ByeMessage::request_code, RequestCode::BYE),
+                                            Field(&ByeMessage::message_code, MessageCode::BYE),
                                             Field(&ByeMessage::request_id, 3)))))
         .Times(1);
 
@@ -347,7 +347,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Dead)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(
-            Matcher<const DeadMessage &>(AllOf(Field(&DeadMessage::request_code, RequestCode::DEAD),
+            Matcher<const DeadMessage &>(AllOf(Field(&DeadMessage::message_code, MessageCode::DEAD),
                 Field(&DeadMessage::request_id, 4), Field(&DeadMessage::nodes, nodes)))))
         .Times(1);
 
@@ -360,7 +360,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Ping)
 
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_, deserialized(Matcher<const PingMessage &>(AllOf(
-                                            Field(&PingMessage::request_code, RequestCode::PING),
+                                            Field(&PingMessage::message_code, MessageCode::PING),
                                             Field(&PingMessage::request_id, 5)))))
         .Times(1);
 
@@ -391,7 +391,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_DNLSync)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const DNLSyncMessage &>(
-            AllOf(Field(&DNLSyncMessage::request_code, RequestCode::DNLSYNC),
+            AllOf(Field(&DNLSyncMessage::message_code, MessageCode::DNLSYNC),
                 Field(&DNLSyncMessage::request_id, 6),
                 Field(&DNLSyncMessage::entries, Pointwise(DNLSyncEntryEq(), entries))))))
         .Times(1);
@@ -415,7 +415,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Search)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const SearchMessage &>(
-            AllOf(Field(&SearchMessage::request_code, RequestCode::SEARCH),
+            AllOf(Field(&SearchMessage::message_code, MessageCode::SEARCH),
                 Field(&SearchMessage::request_id, 7), Field(&SearchMessage::search_id, search_id),
                 Field(&SearchMessage::sender_public_key, pub_key),
                 Field(&SearchMessage::file_hash, file_hash)))))
@@ -435,7 +435,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Uncache)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const UncacheMessage &>(AllOf(
-            Field(&UncacheMessage::request_code, RequestCode::UNCACHE),
+            Field(&UncacheMessage::message_code, MessageCode::UNCACHE),
             Field(&UncacheMessage::request_id, 8), Field(&UncacheMessage::file_hash, file_hash)))))
         .Times(1);
 
@@ -451,7 +451,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_ConfirmTransfer)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const ConfirmTransferMessage &>(
-            AllOf(Field(&ConfirmTransferMessage::request_code, RequestCode::CONFIRMTRANSFER),
+            AllOf(Field(&ConfirmTransferMessage::message_code, MessageCode::CONFIRMTRANSFER),
                 Field(&ConfirmTransferMessage::request_id, 9),
                 Field(&ConfirmTransferMessage::offer_id, offer_id)))))
         .Times(1);
@@ -468,7 +468,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_RequestProxy)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const RequestProxyMessage &>(
-            AllOf(Field(&RequestProxyMessage::request_code, RequestCode::REQUESTPROXY),
+            AllOf(Field(&RequestProxyMessage::message_code, MessageCode::REQUESTPROXY),
                 Field(&RequestProxyMessage::request_id, 10),
                 Field(&RequestProxyMessage::part_size, part_size)))))
         .Times(1);
@@ -485,7 +485,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_InitUpload)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const InitUploadMessage &>(
-            AllOf(Field(&InitUploadMessage::request_code, RequestCode::INITUPLOAD),
+            AllOf(Field(&InitUploadMessage::message_code, MessageCode::INITUPLOAD),
                 Field(&InitUploadMessage::request_id, 11),
                 Field(&InitUploadMessage::offer_id, offer_id)))))
         .Times(1);
@@ -506,7 +506,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Upload)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const UploadMessage &>(
-            AllOf(Field(&UploadMessage::request_code, RequestCode::UPLOAD),
+            AllOf(Field(&UploadMessage::message_code, MessageCode::UPLOAD),
                 Field(&UploadMessage::request_id, 12), Field(&UploadMessage::offset, offset),
                 Field(&UploadMessage::data, data)))))
         .Times(1);
@@ -524,7 +524,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Fetch)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const FetchMessage &>(
-            AllOf(Field(&FetchMessage::request_code, RequestCode::FETCH),
+            AllOf(Field(&FetchMessage::message_code, MessageCode::FETCH),
                 Field(&FetchMessage::request_id, 13), Field(&FetchMessage::offer_id, offer_id),
                 Field(&FetchMessage::drop_point, drop_point)))))
         .Times(1);
@@ -541,7 +541,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_InitDownload)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const InitDownloadMessage &>(
-            AllOf(Field(&InitDownloadMessage::request_code, RequestCode::INITDOWNLOAD),
+            AllOf(Field(&InitDownloadMessage::message_code, MessageCode::INITDOWNLOAD),
                 Field(&InitDownloadMessage::request_id, 14),
                 Field(&InitDownloadMessage::offer_id, offer_id)))))
         .Times(1);
@@ -566,10 +566,10 @@ TEST_F(MessageSerializerTest, DeserializeReply_Basic)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(
-            Matcher<const BasicReply &>(AllOf(Field(&BasicReply::request_code, RequestCode::REPLY),
+            Matcher<const BasicReply &>(AllOf(Field(&BasicReply::message_code, MessageCode::REPLY),
                 Field(&BasicReply::request_id, 16),
                 Field(&BasicReply::status_code, StatusCode::UNREACHABLE),
-                Field(&BasicReply::source_request_code, RequestCode::PING)))))
+                Field(&BasicReply::request_message_code, MessageCode::PING)))))
         .Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
@@ -585,9 +585,9 @@ TEST_F(MessageSerializerTest, DeserializeReply_Pull)
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(
-            Matcher<const PullReply &>(AllOf(Field(&PullReply::request_code, RequestCode::REPLY),
+            Matcher<const PullReply &>(AllOf(Field(&PullReply::message_code, MessageCode::REPLY),
                 Field(&PullReply::request_id, 17), Field(&PullReply::status_code, StatusCode::OK),
-                Field(&PullReply::source_request_code, RequestCode::PULL),
+                Field(&PullReply::request_message_code, MessageCode::PULL),
                 Field(&PullReply::peers, peers)))))
         .Times(1);
 

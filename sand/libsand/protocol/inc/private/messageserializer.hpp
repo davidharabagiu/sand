@@ -9,7 +9,7 @@
 namespace sand::protocol
 {
 // Forward declarations
-class RequestDeserializationResultReceptor;
+class MessageDeserializationResultReceptor;
 
 class MessageSerializer
 {
@@ -39,7 +39,7 @@ public:
     [[nodiscard]] virtual std::vector<uint8_t> serialize(const PullReply &message) const  = 0;
 
     virtual void deserialize(const std::vector<uint8_t> &bytes,
-        RequestDeserializationResultReceptor &           receptor) const = 0;
+        MessageDeserializationResultReceptor &           receptor) const = 0;
 };
 
 }  // namespace sand::protocol
