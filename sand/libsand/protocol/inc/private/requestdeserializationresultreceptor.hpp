@@ -1,25 +1,10 @@
 #ifndef SAND_PROTOCOL_REQUESTDESERIALIZATIONRESULTRECEPTOR_HPP_
 #define SAND_PROTOCOL_REQUESTDESERIALIZATIONRESULTRECEPTOR_HPP_
 
+#include "messages_decl.hpp"
+
 namespace sand::protocol
 {
-// Forward declarations
-struct PullMessage;
-struct PushMessage;
-struct ByeMessage;
-struct DeadMessage;
-struct PingMessage;
-struct DNLSyncMessage;
-struct SearchMessage;
-struct OfferMessage;
-struct UncacheMessage;
-struct ConfirmTransferMessage;
-struct RequestProxyMessage;
-struct InitUploadMessage;
-struct UploadMessage;
-struct FetchMessage;
-struct InitDownloadMessage;
-
 class RequestDeserializationResultReceptor
 {
 public:
@@ -40,6 +25,8 @@ public:
     virtual void deserialized(const UploadMessage &message)          = 0;
     virtual void deserialized(const FetchMessage &message)           = 0;
     virtual void deserialized(const InitDownloadMessage &message)    = 0;
+    virtual void deserialized(const BasicReply &message)             = 0;
+    virtual void deserialized(const PullReply &message)              = 0;
     virtual void error()                                             = 0;
 };
 }  // namespace sand::protocol

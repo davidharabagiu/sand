@@ -2,10 +2,10 @@
 
 #include <utility>
 
-#include "messages.hpp"
+#include <glog/logging.h>
+
 #include "messageserializer.hpp"
 #include "protocolmessagelistener.hpp"
-#include "requestdeserializationresultreceptor.hpp"
 #include "tcpsender.hpp"
 #include "tcpserver.hpp"
 
@@ -43,101 +43,6 @@ constexpr void (ProtocolMessageListener::*FetchMessageNotification)(
     network::IPv4Address, const FetchMessage &) = &ProtocolMessageListener::on_message_received;
 constexpr void (ProtocolMessageListener::*InitDownloadMessageNotification)(network::IPv4Address,
     const InitDownloadMessage &)                = &ProtocolMessageListener::on_message_received;
-
-class RequestDeserializationResultReceptorImpl : public RequestDeserializationResultReceptor
-{
-public:
-    RequestDeserializationResultReceptorImpl(
-        utils::ListenerGroup<ProtocolMessageListener> &listener_group,
-        network::IPv4Address                           message_source)
-        : listener_group_ {listener_group}
-        , message_source_ {message_source}
-    {
-    }
-
-    void deserialized(const PullMessage &message) override
-    {
-        listener_group_.notify(PullMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const PushMessage &message) override
-    {
-        listener_group_.notify(PushMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const ByeMessage &message) override
-    {
-        listener_group_.notify(ByeMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const DeadMessage &message) override
-    {
-        listener_group_.notify(DeadMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const PingMessage &message) override
-    {
-        listener_group_.notify(PingMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const DNLSyncMessage &message) override
-    {
-        listener_group_.notify(DNLSyncMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const SearchMessage &message) override
-    {
-        listener_group_.notify(SearchMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const OfferMessage &message) override
-    {
-        listener_group_.notify(OfferMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const UncacheMessage &message) override
-    {
-        listener_group_.notify(UncacheMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const ConfirmTransferMessage &message) override
-    {
-        listener_group_.notify(ConfirmTransferMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const RequestProxyMessage &message) override
-    {
-        listener_group_.notify(RequestProxyMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const InitUploadMessage &message) override
-    {
-        listener_group_.notify(InitUploadMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const UploadMessage &message) override
-    {
-        listener_group_.notify(UploadMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const FetchMessage &message) override
-    {
-        listener_group_.notify(FetchMessageNotification, message_source_, message);
-    }
-
-    void deserialized(const InitDownloadMessage &message) override
-    {
-        listener_group_.notify(InitDownloadMessageNotification, message_source_, message);
-    }
-
-    void error() override
-    {
-    }
-
-private:
-    utils::ListenerGroup<ProtocolMessageListener> &listener_group_;
-    network::IPv4Address                           message_source_;
-};
 }  // namespace
 
 ProtocolMessageHandlerImpl::ProtocolMessageHandlerImpl(
@@ -174,37 +79,29 @@ bool ProtocolMessageHandlerImpl::unregister_message_listener(
 std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
     network::IPv4Address to, const Message &message)
 {
-    auto reply_promise = std::make_shared<std::promise<std::unique_ptr<BasicReply>>>();
-    auto reply_future  = reply_promise->get_future();
-    auto request_code  = message.request_code;
+    std::promise<std::unique_ptr<BasicReply>> reply_promise;
+    std::future<std::unique_ptr<BasicReply>>  reply_future = reply_promise.get_future();
+
+    if (pending_replies_.count(message.request_id) != 0)
+    {
+        LOG(ERROR) << "Request with id " << message.request_id << " already sent";
+        reply_promise.set_value(nullptr);
+        return reply_future;
+    }
 
     auto bytes = message.serialize(message_serializer_);
-    tcp_sender_->send(to,
-        bytes.data(),
-        bytes.size(),
-        [this, request_code, reply_promise](const uint8_t *data, size_t len) {
-            std::unique_ptr<BasicReply> reply;
-            std::vector<uint8_t>        data_vec(data, data + len);
-            bool                        success;
-
-            if (request_code == RequestCode::PULL)
-            {
-                reply = std::make_unique<PullReply>();
-                success =
-                    message_serializer_->deserialize(data_vec, static_cast<PullReply &>(*reply));
-            }
-            else
-            {
-                reply   = std::make_unique<BasicReply>();
-                success = message_serializer_->deserialize(data_vec, *reply);
-            }
-
-            if (!success)
-            {
-                reply.reset();
-            }
-            reply_promise->set_value(std::move(reply));
-        });
+    if (tcp_sender_->send(to, bytes.data(), bytes.size()))
+    {
+        pending_replies_.emplace(
+            message.request_id, PendingReply {std::move(reply_promise), message.request_code});
+    }
+    else
+    {
+        auto reply         = std::make_unique<BasicReply>(message.request_code);
+        reply->request_id  = message.request_id;
+        reply->status_code = StatusCode::UNREACHABLE;
+        reply_promise.set_value(std::move(reply));
+    }
 
     return reply_future;
 }
@@ -212,7 +109,141 @@ std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
 void ProtocolMessageHandlerImpl::on_message_received(
     network::IPv4Address from, const uint8_t *data, size_t len)
 {
-    RequestDeserializationResultReceptorImpl receptor {listener_group_, from};
+    RequestDeserializationResultReceptorImpl receptor {*this, from};
     message_serializer_->deserialize(std::vector<uint8_t>(data, data + len), receptor);
+}
+
+ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::
+    RequestDeserializationResultReceptorImpl(
+        ProtocolMessageHandlerImpl &parent, network::IPv4Address message_source)
+    : parent_ {parent}
+    , message_source_ {message_source}
+{
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const PullMessage &message)
+{
+    parent_.listener_group_.notify(PullMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const PushMessage &message)
+{
+    parent_.listener_group_.notify(PushMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const ByeMessage &message)
+{
+    parent_.listener_group_.notify(ByeMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const DeadMessage &message)
+{
+    parent_.listener_group_.notify(DeadMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const PingMessage &message)
+{
+    parent_.listener_group_.notify(PingMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const DNLSyncMessage &message)
+{
+    parent_.listener_group_.notify(DNLSyncMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const SearchMessage &message)
+{
+    parent_.listener_group_.notify(SearchMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const OfferMessage &message)
+{
+    parent_.listener_group_.notify(OfferMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const UncacheMessage &message)
+{
+    parent_.listener_group_.notify(UncacheMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const ConfirmTransferMessage &message)
+{
+    parent_.listener_group_.notify(ConfirmTransferMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const RequestProxyMessage &message)
+{
+    parent_.listener_group_.notify(RequestProxyMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const InitUploadMessage &message)
+{
+    parent_.listener_group_.notify(InitUploadMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const UploadMessage &message)
+{
+    parent_.listener_group_.notify(UploadMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const FetchMessage &message)
+{
+    parent_.listener_group_.notify(FetchMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const InitDownloadMessage &message)
+{
+    parent_.listener_group_.notify(InitDownloadMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const BasicReply &message)
+{
+    process_reply(std::make_unique<BasicReply>(message));
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const PullReply &message)
+{
+    process_reply(std::make_unique<PullReply>(message));
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::error()
+{
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::process_reply(
+    std::unique_ptr<BasicReply> reply)
+{
+    auto it = parent_.pending_replies_.find(reply->request_id);
+    if (it == parent_.pending_replies_.end())
+    {
+        LOG(WARNING) << "Stray reply received; Request id = " << reply->request_id;
+        return;
+    }
+    if (it->second.request_code != reply->source_request_code)
+    {
+        LOG(ERROR) << "Reply source_request_code (" << int(reply->source_request_code)
+                   << ") does not match the corresponding message request_code ("
+                   << int(it->second.request_code) << ")";
+        return;
+    }
+    it->second.promise.set_value(std::move(reply));
+    parent_.pending_replies_.erase(it);
 }
 }  // namespace sand::protocol

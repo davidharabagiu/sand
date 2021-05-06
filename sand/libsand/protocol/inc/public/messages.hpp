@@ -10,9 +10,11 @@
 
 #include "address.hpp"
 #include "messageserializer.hpp"
+#include "random.hpp"
 
 namespace sand::protocol
 {
+using RequestId     = uint64_t;
 using Timestamp     = std::chrono::time_point<std::chrono::system_clock>;
 using SearchId      = uint64_t;
 using OfferId       = uint64_t;
@@ -39,33 +41,42 @@ enum class RequestCode : uint8_t
     INITUPLOAD      = 98,
     UPLOAD          = 99,
     FETCH           = 100,
-    INITDOWNLOAD    = 101
+    INITDOWNLOAD    = 101,
+    REPLY           = 255
+};
+
+enum class StatusCode : uint8_t
+{
+    OK          = 0,
+    UNREACHABLE = 1
 };
 
 struct Message
 {
     const RequestCode request_code;
+    RequestId         request_id {};
 
     explicit Message(RequestCode code)
         : request_code {code}
+        , request_id {}
     {
     }
 
     virtual ~Message() = default;
-    virtual std::vector<Byte> serialize(
+    [[nodiscard]] virtual std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const = 0;
 };
 
 struct PullMessage : public Message
 {
-    uint8_t address_count;
+    uint8_t address_count {};
 
     PullMessage()
         : Message {RequestCode::PULL}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -79,7 +90,7 @@ struct PushMessage : public Message
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -93,7 +104,7 @@ struct ByeMessage : public Message
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -109,7 +120,7 @@ struct DeadMessage : public Message
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -123,7 +134,7 @@ struct PingMessage : public Message
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -135,12 +146,12 @@ struct DNLSyncMessage : public Message
     struct Entry
     {
         Timestamp            timestamp;
-        network::IPv4Address address;
+        network::IPv4Address address {};
         enum : uint8_t
         {
             ADD_ADDRESS,
             REMOVE_ADDRESS
-        } action;
+        } action {};
     };
 
     std::vector<Entry> entries;
@@ -150,7 +161,7 @@ struct DNLSyncMessage : public Message
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -159,16 +170,16 @@ struct DNLSyncMessage : public Message
 
 struct SearchMessage : public Message
 {
-    SearchId      search_id;
-    NodePublicKey sender_public_key;
-    AHash         file_hash;
+    SearchId      search_id {};
+    NodePublicKey sender_public_key {};
+    AHash         file_hash {};
 
     SearchMessage()
         : Message {RequestCode::SEARCH}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -184,10 +195,10 @@ struct OfferMessage : public Message
         PartSize             part_size;
     };
 
-    SearchId              search_id;
-    OfferId               offer_id;
-    NodePublicKey         receiver_public_key;
-    TransferKey           transfer_key;
+    SearchId              search_id {};
+    OfferId               offer_id {};
+    NodePublicKey         receiver_public_key {};
+    TransferKey           transfer_key {};
     std::vector<PartData> parts;
 
     OfferMessage()
@@ -195,7 +206,7 @@ struct OfferMessage : public Message
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -204,14 +215,14 @@ struct OfferMessage : public Message
 
 struct UncacheMessage : public Message
 {
-    AHash file_hash;
+    AHash file_hash {};
 
     UncacheMessage()
         : Message {RequestCode::UNCACHE}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -220,14 +231,14 @@ struct UncacheMessage : public Message
 
 struct ConfirmTransferMessage : public Message
 {
-    OfferId offer_id;
+    OfferId offer_id {};
 
     ConfirmTransferMessage()
         : Message {RequestCode::CONFIRMTRANSFER}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -236,14 +247,14 @@ struct ConfirmTransferMessage : public Message
 
 struct RequestProxyMessage : public Message
 {
-    PartSize part_size;
+    PartSize part_size {};
 
     RequestProxyMessage()
         : Message {RequestCode::REQUESTPROXY}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -252,14 +263,14 @@ struct RequestProxyMessage : public Message
 
 struct InitUploadMessage : public Message
 {
-    OfferId offer_id;
+    OfferId offer_id {};
 
     InitUploadMessage()
         : Message {RequestCode::INITUPLOAD}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -268,7 +279,7 @@ struct InitUploadMessage : public Message
 
 struct UploadMessage : public Message
 {
-    PartSize          offset;
+    PartSize          offset {};
     std::vector<Byte> data;
 
     UploadMessage()
@@ -276,7 +287,7 @@ struct UploadMessage : public Message
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -285,15 +296,15 @@ struct UploadMessage : public Message
 
 struct FetchMessage : public Message
 {
-    OfferId              offer_id;
-    network::IPv4Address drop_point;
+    OfferId              offer_id {};
+    network::IPv4Address drop_point {};
 
     FetchMessage()
         : Message {RequestCode::FETCH}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
@@ -302,34 +313,33 @@ struct FetchMessage : public Message
 
 struct InitDownloadMessage : public Message
 {
-    OfferId offer_id;
+    OfferId offer_id {};
 
     InitDownloadMessage()
         : Message {RequestCode::INITDOWNLOAD}
     {
     }
 
-    std::vector<Byte> serialize(
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
     }
 };
 
-enum class StatusCode : uint8_t
+struct BasicReply : public Message
 {
-    OK          = 0,
-    UNREACHABLE = 1
-};
+    StatusCode        status_code {};
+    const RequestCode source_request_code;
 
-struct BasicReply
-{
-    StatusCode status_code;
+    explicit BasicReply(RequestCode _source_request_code)
+        : Message {RequestCode::REPLY}
+        , source_request_code {_source_request_code}
+    {
+    }
 
-    virtual ~BasicReply() = default;
-
-    virtual std::vector<Byte> serialize(
-        const std::shared_ptr<const MessageSerializer> &serializer) const
+    [[nodiscard]] std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
     }
@@ -339,28 +349,17 @@ struct PullReply : public BasicReply
 {
     std::vector<network::IPv4Address> peers;
 
-    std::vector<Byte> serialize(
+    PullReply()
+        : BasicReply {RequestCode::PULL}
+    {
+    }
+
+    [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
     {
         return serializer->serialize(*this);
     }
 };
-
-template<RequestCode>
-struct ReplyType
-{
-    using type = BasicReply;
-};
-
-template<>
-struct ReplyType<RequestCode::PULL>
-{
-    using type = PullReply;
-};
-
-template<RequestCode C>
-using ReplyType_t = typename ReplyType<C>::type;
-
 }  // namespace sand::protocol
 
 #endif  // SAND_PROTOCOL_MESSAGES_HPP_

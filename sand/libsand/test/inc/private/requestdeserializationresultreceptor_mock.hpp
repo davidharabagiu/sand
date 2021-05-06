@@ -26,6 +26,8 @@ public:
     MOCK_METHOD(void, deserialized, (const UploadMessage &), (override));
     MOCK_METHOD(void, deserialized, (const FetchMessage &), (override));
     MOCK_METHOD(void, deserialized, (const InitDownloadMessage &), (override));
+    MOCK_METHOD(void, deserialized, (const BasicReply &), (override));
+    MOCK_METHOD(void, deserialized, (const PullReply &), (override));
     MOCK_METHOD(void, error, (), (override));
 };
 

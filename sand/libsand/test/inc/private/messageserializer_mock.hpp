@@ -32,8 +32,6 @@ public:
     MOCK_METHOD(std::vector<uint8_t>, serialize, (const PullReply &), (const, override));
     MOCK_METHOD(void, deserialize,
         (const std::vector<uint8_t> &, RequestDeserializationResultReceptor &), (const, override));
-    MOCK_METHOD(bool, deserialize, (const std::vector<uint8_t> &, BasicReply &), (const, override));
-    MOCK_METHOD(bool, deserialize, (const std::vector<uint8_t> &, PullReply &), (const, override));
 };
 
 #endif  // SAND_PROTOCOLTEST_MESSAGESERIALIZER_MOCK_HPP_
