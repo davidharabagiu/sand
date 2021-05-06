@@ -67,12 +67,14 @@ void ProtocolMessageHandlerImpl::initialize()
 bool ProtocolMessageHandlerImpl::register_message_listener(
     const std::shared_ptr<ProtocolMessageListener> &listener)
 {
+    std::lock_guard<std::mutex> _lock {mutex_};
     return listener_group_.add(listener);
 }
 
 bool ProtocolMessageHandlerImpl::unregister_message_listener(
     const std::shared_ptr<ProtocolMessageListener> &listener)
 {
+    std::lock_guard<std::mutex> _lock {mutex_};
     return listener_group_.remove(listener);
 }
 
@@ -82,16 +84,20 @@ std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
     std::promise<std::unique_ptr<BasicReply>> reply_promise;
     std::future<std::unique_ptr<BasicReply>>  reply_future = reply_promise.get_future();
 
-    if (pending_replies_.count(message.request_id) != 0)
     {
-        LOG(ERROR) << "Request with id " << message.request_id << " already sent";
-        reply_promise.set_value(nullptr);
-        return reply_future;
+        std::lock_guard<std::mutex> _lock {mutex_};
+        if (pending_replies_.count(message.request_id) != 0)
+        {
+            LOG(ERROR) << "Request with id " << message.request_id << " already sent";
+            reply_promise.set_value(nullptr);
+            return reply_future;
+        }
     }
 
     auto bytes = message.serialize(message_serializer_);
     if (tcp_sender_->send(to, bytes.data(), bytes.size()))
     {
+        std::lock_guard<std::mutex> _lock {mutex_};
         pending_replies_.emplace(
             message.request_id, PendingReply {std::move(reply_promise), message.message_code});
     }
@@ -124,96 +130,112 @@ ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const PullMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(PullMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const PushMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(PushMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const ByeMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(ByeMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const DeadMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(DeadMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const PingMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(PingMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const DNLSyncMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(DNLSyncMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const SearchMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(SearchMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const OfferMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(OfferMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const UncacheMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(UncacheMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const ConfirmTransferMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(ConfirmTransferMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const RequestProxyMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(RequestProxyMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const InitUploadMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(InitUploadMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const UploadMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(UploadMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const FetchMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(FetchMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const InitDownloadMessage &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(InitDownloadMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const BasicReply &message)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     process_reply(std::make_unique<BasicReply>(message));
 }
 
@@ -230,6 +252,8 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::error
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::process_reply(
     std::unique_ptr<BasicReply> reply)
 {
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
+
     auto it = parent_.pending_replies_.find(reply->request_id);
     if (it == parent_.pending_replies_.end())
     {

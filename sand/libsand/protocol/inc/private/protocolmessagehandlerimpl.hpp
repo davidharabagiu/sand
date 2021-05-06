@@ -3,6 +3,7 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
 
 #include "listenergroup.hpp"
 #include "messagedeserializationresultreceptor.hpp"
@@ -82,11 +83,12 @@ private:
         network::IPv4Address        message_source_;
     };
 
-    utils::ListenerGroup<ProtocolMessageListener> listener_group_;
-    std::shared_ptr<network::TCPSender>           tcp_sender_;
-    std::shared_ptr<network::TCPServer>           tcp_server_;
-    std::shared_ptr<const MessageSerializer>      message_serializer_;
-    std::map<RequestId, PendingReply>             pending_replies_;
+    utils::ListenerGroup<ProtocolMessageListener>  listener_group_;
+    const std::shared_ptr<network::TCPSender>      tcp_sender_;
+    const std::shared_ptr<network::TCPServer>      tcp_server_;
+    const std::shared_ptr<const MessageSerializer> message_serializer_;
+    std::map<RequestId, PendingReply>              pending_replies_;
+    std::mutex                                     mutex_;
 
     friend class RequestDeserializationResultReceptorImpl;
 };
