@@ -18,6 +18,7 @@ target_link_libraries(${TARGET_NAME}
         ${GTEST_LIB}
         ${GMOCK_LIB}
         pthread
+        network
         protocol
         utils)
 

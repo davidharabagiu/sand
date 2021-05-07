@@ -54,14 +54,14 @@ ProtocolMessageHandlerImpl::ProtocolMessageHandlerImpl(
 {
 }
 
-ProtocolMessageHandlerImpl::~ProtocolMessageHandlerImpl()
-{
-    tcp_server_->unregister_listener(shared_from_this());
-}
-
 void ProtocolMessageHandlerImpl::initialize()
 {
     tcp_server_->register_listener(shared_from_this());
+}
+
+void ProtocolMessageHandlerImpl::uninitialize()
+{
+    tcp_server_->unregister_listener(shared_from_this());
 }
 
 bool ProtocolMessageHandlerImpl::register_message_listener(
@@ -89,17 +89,22 @@ std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
         if (pending_replies_.count(message.request_id) != 0)
         {
             LOG(ERROR) << "Request with id " << message.request_id << " already sent";
-            reply_promise.set_value(nullptr);
-            return reply_future;
+            return {};  // invalid future
         }
     }
 
-    auto bytes = message.serialize(message_serializer_);
-    if (tcp_sender_->send(to, bytes.data(), bytes.size()))
+    auto bytes   = message.serialize(message_serializer_);
+    bool success = tcp_sender_->send(to, bytes.data(), bytes.size());
+
+    if (message.message_code == MessageCode::BYE)
+    {
+        reply_promise.set_value(nullptr);
+    }
+    else if (success)
     {
         std::lock_guard<std::mutex> _lock {mutex_};
         pending_replies_.emplace(
-            message.request_id, PendingReply {std::move(reply_promise), message.message_code});
+            message.request_id, PendingReply {std::move(reply_promise), message.message_code, to});
     }
     else
     {
@@ -235,7 +240,6 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deser
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const BasicReply &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     process_reply(std::make_unique<BasicReply>(message));
 }
 
@@ -260,11 +264,18 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::proce
         LOG(WARNING) << "Stray reply received; Request id = " << reply->request_id;
         return;
     }
+    if (it->second.from != message_source_)
+    {
+        LOG(WARNING) << "Reply source address (" << network::conversion::to_string(message_source_)
+                     << ") does not match the corresponding message destination address ("
+                     << network::conversion::to_string(it->second.from) << ")";
+        return;
+    }
     if (it->second.message_code != reply->request_message_code)
     {
-        LOG(ERROR) << "Reply request_message_code (" << int(reply->request_message_code)
-                   << ") does not match the corresponding message message_code ("
-                   << int(it->second.message_code) << ")";
+        LOG(WARNING) << "Reply request_message_code (" << int(reply->request_message_code)
+                     << ") does not match the corresponding message message_code ("
+                     << int(it->second.message_code) << ")";
         return;
     }
     it->second.promise.set_value(std::move(reply));

@@ -3,12 +3,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <sstream>
-#include <string>
-#include <type_traits>
-#include <utility>
 
 #include "messageserializerimpl.hpp"
+#include "protocoltestutils.hpp"
 
 #include "messagedeserializationresultreceptor_mock.hpp"
 
@@ -26,31 +23,6 @@ protected:
         std::srand(unsigned(std::time(nullptr)));
         result_receptor_mock_ =
             std::make_unique<NiceMock<MessageDeserializationResultReceptorMock>>();
-    }
-
-    static IPv4Address to_ipv4_addr(const std::string &str)
-    {
-        std::istringstream ss {str};
-        IPv4Address        result = 0;
-        for (int i = 0; i != 4; ++i)
-        {
-            IPv4Address byte;
-            ss >> byte;
-            ss.get();
-            result <<= 8;
-            result |= byte;
-        }
-        return result;
-    }
-
-    template<typename OutputIt, typename Int = std::decay_t<decltype(*std::declval<OutputIt>())>>
-    static auto random_values(OutputIt dst, size_t count)
-        -> std::enable_if_t<std::is_integral_v<Int>>
-    {
-        while (count--)
-        {
-            *dst++ = Int(std::rand());
-        }
     }
 
     std::unique_ptr<MessageDeserializationResultReceptorMock> result_receptor_mock_;
@@ -98,8 +70,8 @@ TEST_F(MessageSerializerTest, SerializeRequest_Dead)
 {
     DeadMessage req;
     req.request_id = 4;
-    req.nodes      = {
-        to_ipv4_addr("192.168.0.1"), to_ipv4_addr("192.168.0.2"), to_ipv4_addr("192.168.0.3")};
+    req.nodes      = {conversion::to_ipv4_address("192.168.0.1"),
+        conversion::to_ipv4_address("192.168.0.2"), conversion::to_ipv4_address("192.168.0.3")};
     std::vector<uint8_t> expected {0x23, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01,
         0x00, 0xa8, 0xc0, 0x02, 0x00, 0xa8, 0xc0, 0x03, 0x00, 0xa8, 0xc0};
 
@@ -127,9 +99,10 @@ TEST_F(MessageSerializerTest, SerializeRequest_DNLSync)
 
     DNLSyncMessage req;
     req.request_id = 6;
-    req.entries    = {{Timestamp {milliseconds {1620294550000}}, to_ipv4_addr("192.168.0.1"),
-                       DNLSyncMessage::Entry::ADD_ADDRESS},
-        {Timestamp {milliseconds {1620296660000}}, to_ipv4_addr("192.168.0.2"),
+    req.entries    = {
+        {Timestamp {milliseconds {1620294550000}}, conversion::to_ipv4_address("192.168.0.1"),
+            DNLSyncMessage::Entry::ADD_ADDRESS},
+        {Timestamp {milliseconds {1620296660000}}, conversion::to_ipv4_address("192.168.0.2"),
             DNLSyncMessage::Entry::REMOVE_ADDRESS}};
 
     std::vector<uint8_t> expected {0x25, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xf0,
@@ -147,8 +120,8 @@ TEST_F(MessageSerializerTest, SerializeRequest_Search)
     SearchMessage req;
     req.request_id = 7;
     req.search_id  = 0x19c5d0b4db434a14;
-    random_values(req.sender_public_key.begin(), req.sender_public_key.size());
-    random_values(req.file_hash.begin(), req.file_hash.size());
+    testutils::random_values(req.sender_public_key.begin(), req.sender_public_key.size());
+    testutils::random_values(req.file_hash.begin(), req.file_hash.size());
 
     std::vector<uint8_t> expected {0x40, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
         0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19};
@@ -166,7 +139,7 @@ TEST_F(MessageSerializerTest, SerializeRequest_Uncache)
 {
     UncacheMessage req;
     req.request_id = 8;
-    random_values(req.file_hash.begin(), req.file_hash.size());
+    testutils::random_values(req.file_hash.begin(), req.file_hash.size());
 
     std::vector<uint8_t> expected {0x42, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     std::copy(req.file_hash.cbegin(), req.file_hash.cend(), std::back_inserter(expected));
@@ -225,7 +198,7 @@ TEST_F(MessageSerializerTest, SerializeRequest_Upload)
     req.request_id = 12;
     req.offset     = 0x90020526;
     req.data.resize(0x400000);
-    random_values(req.data.begin(), req.data.size());
+    testutils::random_values(req.data.begin(), req.data.size());
 
     std::vector<uint8_t> expected {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x05,
         0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
@@ -242,7 +215,7 @@ TEST_F(MessageSerializerTest, SerializeRequest_Fetch)
     FetchMessage req;
     req.request_id = 13;
     req.offer_id   = 0x198971b3068d7e4d;
-    req.drop_point = to_ipv4_addr("192.168.0.1");
+    req.drop_point = conversion::to_ipv4_address("192.168.0.1");
     std::vector<uint8_t> expected {0x64, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
         0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x01, 0x00, 0xa8, 0xc0};
 
@@ -285,8 +258,8 @@ TEST_F(MessageSerializerTest, SerializeReply_Pull)
     PullReply reply;
     reply.request_id  = 16;
     reply.status_code = StatusCode::OK;
-    reply.peers       = {
-        to_ipv4_addr("192.168.0.1"), to_ipv4_addr("192.168.0.2"), to_ipv4_addr("192.168.0.3")};
+    reply.peers       = {conversion::to_ipv4_address("192.168.0.1"),
+        conversion::to_ipv4_address("192.168.0.2"), conversion::to_ipv4_address("192.168.0.3")};
     std::vector<uint8_t> expected {0xff, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20,
         0x03, 0x01, 0x00, 0xa8, 0xc0, 0x02, 0x00, 0xa8, 0xc0, 0x03, 0x00, 0xa8, 0xc0};
 
@@ -310,6 +283,16 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Pull)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_Pull_Invalid)
+{
+    std::vector<uint8_t> bytes {0x20, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_Push)
 {
     std::vector<uint8_t> bytes {0x21, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -319,6 +302,16 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Push)
                                             Field(&PushMessage::message_code, MessageCode::PUSH),
                                             Field(&PushMessage::request_id, 2)))))
         .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_Push_Invalid)
+{
+    std::vector<uint8_t> bytes {0x21, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
@@ -336,10 +329,20 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Bye)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_Bye_Invalid)
+{
+    std::vector<uint8_t> bytes {0x22, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_Dead)
 {
-    std::vector<IPv4Address> nodes {
-        to_ipv4_addr("192.168.0.1"), to_ipv4_addr("192.168.0.2"), to_ipv4_addr("192.168.0.3")};
+    std::vector<IPv4Address> nodes {conversion::to_ipv4_address("192.168.0.1"),
+        conversion::to_ipv4_address("192.168.0.2"), conversion::to_ipv4_address("192.168.0.3")};
 
     std::vector<uint8_t> bytes {0x23, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01,
         0x00, 0xa8, 0xc0, 0x02, 0x00, 0xa8, 0xc0, 0x03, 0x00, 0xa8, 0xc0};
@@ -350,6 +353,17 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Dead)
             Matcher<const DeadMessage &>(AllOf(Field(&DeadMessage::message_code, MessageCode::DEAD),
                 Field(&DeadMessage::request_id, 4), Field(&DeadMessage::nodes, nodes)))))
         .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_Dead_Invalid)
+{
+    std::vector<uint8_t> bytes {0x23, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01,
+        0x00, 0xa8, 0xc0, 0x02, 0x00, 0xa8, 0xc0, 0x03, 0x00, 0xa8};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
@@ -367,7 +381,17 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Ping)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
-MATCHER(DNLSyncEntryEq, "")
+TEST_F(MessageSerializerTest, DeserializeRequest_Ping_Invalid)
+{
+    std::vector<uint8_t> bytes {0x24, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+MATCHER(DNLSyncEntryEq, "Equality comparison for DNLSync::Entry")
 {
     return std::get<0>(arg).timestamp == std::get<1>(arg).timestamp &&
            std::get<0>(arg).address == std::get<1>(arg).address &&
@@ -379,9 +403,9 @@ TEST_F(MessageSerializerTest, DeserializeRequest_DNLSync)
     using namespace std::chrono;
 
     std::vector<DNLSyncMessage::Entry> entries {
-        {Timestamp {milliseconds {1620294550000}}, to_ipv4_addr("192.168.0.1"),
+        {Timestamp {milliseconds {1620294550000}}, conversion::to_ipv4_address("192.168.0.1"),
             DNLSyncMessage::Entry::ADD_ADDRESS},
-        {Timestamp {milliseconds {1620296660000}}, to_ipv4_addr("192.168.0.2"),
+        {Timestamp {milliseconds {1620296660000}}, conversion::to_ipv4_address("192.168.0.2"),
             DNLSyncMessage::Entry::REMOVE_ADDRESS}};
 
     std::vector<uint8_t> bytes {0x25, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xf0,
@@ -399,13 +423,25 @@ TEST_F(MessageSerializerTest, DeserializeRequest_DNLSync)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_DNLSync_Invalid)
+{
+    std::vector<uint8_t> bytes {0x25, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xf0,
+        0xc1, 0x14, 0x41, 0x79, 0x01, 0x00, 0x00, 0x01, 0x00, 0xa8, 0xc0, 0x00, 0x20, 0xf4, 0x34,
+        0x41, 0x79, 0x01, 0x00, 0x00, 0x02, 0x00, 0xa8, 0xc0};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_Search)
 {
     SearchId      search_id = 0x19c5d0b4db434a14;
     NodePublicKey pub_key;
     AHash         file_hash;
-    random_values(pub_key.begin(), pub_key.size());
-    random_values(file_hash.begin(), file_hash.size());
+    testutils::random_values(pub_key.begin(), pub_key.size());
+    testutils::random_values(file_hash.begin(), file_hash.size());
 
     std::vector<uint8_t> bytes {0x40, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
         0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19};
@@ -424,10 +460,29 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Search)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_Search_Invalid)
+{
+    NodePublicKey pub_key;
+    AHash         file_hash;
+    testutils::random_values(pub_key.begin(), pub_key.size());
+    testutils::random_values(file_hash.begin(), file_hash.size());
+
+    std::vector<uint8_t> bytes {0x40, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
+        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19};
+    std::copy(pub_key.cbegin(), pub_key.cend(), std::back_inserter(bytes));
+    std::copy(file_hash.cbegin(), file_hash.cend(), std::back_inserter(bytes));
+    bytes.resize(bytes.size() - 1);
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_Uncache)
 {
     AHash file_hash;
-    random_values(file_hash.begin(), file_hash.size());
+    testutils::random_values(file_hash.begin(), file_hash.size());
 
     std::vector<uint8_t> bytes {0x42, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     std::copy(file_hash.cbegin(), file_hash.cend(), std::back_inserter(bytes));
@@ -438,6 +493,21 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Uncache)
             Field(&UncacheMessage::message_code, MessageCode::UNCACHE),
             Field(&UncacheMessage::request_id, 8), Field(&UncacheMessage::file_hash, file_hash)))))
         .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_Uncache_Invalid)
+{
+    AHash file_hash;
+    testutils::random_values(file_hash.begin(), file_hash.size());
+
+    std::vector<uint8_t> bytes {0x42, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    std::copy(file_hash.cbegin(), file_hash.cend(), std::back_inserter(bytes));
+    bytes.resize(bytes.size() - 1);
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
@@ -459,6 +529,17 @@ TEST_F(MessageSerializerTest, DeserializeRequest_ConfirmTransfer)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_ConfirmTransfer_Invalid)
+{
+    std::vector<uint8_t> bytes {0x43, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
+        0x8d, 0x06, 0xb3, 0x71, 0x89};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_RequestProxy)
 {
     PartSize             part_size = 0xabb355d;
@@ -472,6 +553,17 @@ TEST_F(MessageSerializerTest, DeserializeRequest_RequestProxy)
                 Field(&RequestProxyMessage::request_id, 10),
                 Field(&RequestProxyMessage::part_size, part_size)))))
         .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_RequestProxy_Invalid)
+{
+    std::vector<uint8_t> bytes {
+        0x60, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5d, 0x35, 0xbb};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
@@ -493,11 +585,22 @@ TEST_F(MessageSerializerTest, DeserializeRequest_InitUpload)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_InitUpload_Invalid)
+{
+    std::vector<uint8_t> bytes {0x62, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
+        0x8d, 0x06, 0xb3, 0x71, 0x89};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_Upload)
 {
     PartSize             offset = 0x90020526;
     std::vector<uint8_t> data(0x400000);
-    random_values(data.begin(), data.size());
+    testutils::random_values(data.begin(), data.size());
 
     std::vector<uint8_t> bytes {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x05,
         0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
@@ -514,10 +617,26 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Upload)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_Upload_Invalid)
+{
+    std::vector<uint8_t> data(0x400000);
+    testutils::random_values(data.begin(), data.size());
+
+    std::vector<uint8_t> bytes {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x05,
+        0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
+    std::copy(data.cbegin(), data.cend(), std::back_inserter(bytes));
+    bytes.resize(bytes.size() - 1);
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_Fetch)
 {
     OfferId              offer_id   = 0x198971b3068d7e4d;
-    IPv4Address          drop_point = to_ipv4_addr("192.168.0.1");
+    IPv4Address          drop_point = conversion::to_ipv4_address("192.168.0.1");
     std::vector<uint8_t> bytes {0x64, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
         0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x01, 0x00, 0xa8, 0xc0};
 
@@ -528,6 +647,17 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Fetch)
                 Field(&FetchMessage::request_id, 13), Field(&FetchMessage::offer_id, offer_id),
                 Field(&FetchMessage::drop_point, drop_point)))))
         .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_Fetch_Invalid)
+{
+    std::vector<uint8_t> bytes {0x64, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
+        0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x01, 0x00, 0xa8};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
@@ -545,6 +675,17 @@ TEST_F(MessageSerializerTest, DeserializeRequest_InitDownload)
                 Field(&InitDownloadMessage::request_id, 14),
                 Field(&InitDownloadMessage::offer_id, offer_id)))))
         .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_InitDownload_Invalid)
+{
+    std::vector<uint8_t> bytes {0x65, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
+        0x8d, 0x06, 0xb3, 0x71, 0x89};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
@@ -575,10 +716,20 @@ TEST_F(MessageSerializerTest, DeserializeReply_Basic)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeReply_Basic_Invalid)
+{
+    std::vector<uint8_t> bytes {0xff, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeReply_Pull)
 {
-    std::vector<IPv4Address> peers = {
-        to_ipv4_addr("192.168.0.1"), to_ipv4_addr("192.168.0.2"), to_ipv4_addr("192.168.0.3")};
+    std::vector<IPv4Address> peers = {conversion::to_ipv4_address("192.168.0.1"),
+        conversion::to_ipv4_address("192.168.0.2"), conversion::to_ipv4_address("192.168.0.3")};
     std::vector<uint8_t> bytes {0xff, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20,
         0x03, 0x01, 0x00, 0xa8, 0xc0, 0x02, 0x00, 0xa8, 0xc0, 0x03, 0x00, 0xa8, 0xc0};
 
@@ -590,6 +741,17 @@ TEST_F(MessageSerializerTest, DeserializeReply_Pull)
                 Field(&PullReply::request_message_code, MessageCode::PULL),
                 Field(&PullReply::peers, peers)))))
         .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeReply_Pull_Invalid)
+{
+    std::vector<uint8_t> bytes {0xff, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20,
+        0x03, 0x01, 0x00, 0xa8, 0xc0, 0x02, 0x00, 0xa8, 0xc0, 0x03, 0x00, 0xa8};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
 }

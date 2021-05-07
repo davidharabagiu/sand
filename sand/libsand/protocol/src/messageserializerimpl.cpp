@@ -802,7 +802,7 @@ void MessageSerializerImpl::deserialize(
         }
         default:
         {
-            LOG(ERROR) << "Invalid request code: " << int(message_code);
+            LOG(WARNING) << "Invalid request code: " << int(message_code);
             receptor.error();
             break;
         }

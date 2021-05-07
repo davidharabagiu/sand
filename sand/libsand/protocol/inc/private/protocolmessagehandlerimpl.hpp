@@ -29,19 +29,14 @@ class ProtocolMessageHandlerImpl
     , public std::enable_shared_from_this<ProtocolMessageHandlerImpl>
 {
 public:
-    struct PendingReply
-    {
-        std::promise<std::unique_ptr<BasicReply>> promise;
-        MessageCode                               message_code;
-    };
-
     ProtocolMessageHandlerImpl(std::shared_ptr<network::TCPSender> tcp_sender,
         std::shared_ptr<network::TCPServer>                        tcp_server,
         std::shared_ptr<const MessageSerializer>                   message_serializer);
-    ~ProtocolMessageHandlerImpl() override;
 
     void initialize();
+    void uninitialize();
 
+public:  // From ProtocolMessageHandler
     bool register_message_listener(
         const std::shared_ptr<ProtocolMessageListener> &listener) override;
     bool unregister_message_listener(
@@ -49,6 +44,7 @@ public:
     std::future<std::unique_ptr<BasicReply>> send(
         network::IPv4Address to, const Message &message) override;
 
+public:  // From network::TCPMessageListener
     void on_message_received(network::IPv4Address from, const uint8_t *data, size_t len) override;
 
 private:
@@ -81,6 +77,13 @@ private:
 
         ProtocolMessageHandlerImpl &parent_;
         network::IPv4Address        message_source_;
+    };
+
+    struct PendingReply
+    {
+        std::promise<std::unique_ptr<BasicReply>> promise;
+        MessageCode                               message_code;
+        network::IPv4Address                      from;
     };
 
     utils::ListenerGroup<ProtocolMessageListener>  listener_group_;
