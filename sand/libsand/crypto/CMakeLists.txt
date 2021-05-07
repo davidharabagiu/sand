@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
-project(libsand_protocol)
+project(libsand_crypto)
 
-set(TARGET_NAME protocol)
+set(TARGET_NAME crypto)
 
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
 
@@ -14,7 +14,4 @@ target_include_directories(${TARGET_NAME}
 
 find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME}
-        ${GLOG_LIB}
-        utils
-        network
-        crypto)
+        ${GLOG_LIB})

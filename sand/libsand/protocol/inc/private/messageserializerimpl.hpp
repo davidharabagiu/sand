@@ -1,7 +1,10 @@
 #ifndef SAND_PROTOCOL_MESSAGESERIALIZERIMPL_HPP_
 #define SAND_PROTOCOL_MESSAGESERIALIZERIMPL_HPP_
 
+#include <memory>
+
 #include "messageserializer.hpp"
+#include "rsacipher.hpp"
 
 namespace sand::protocol
 {

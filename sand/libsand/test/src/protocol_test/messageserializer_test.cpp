@@ -8,10 +8,12 @@
 #include "protocoltestutils.hpp"
 
 #include "messagedeserializationresultreceptor_mock.hpp"
+#include "rsacipher_mock.hpp"
 
 using namespace ::testing;
 using namespace ::sand::protocol;
 using namespace ::sand::network;
+using namespace ::sand::crypto;
 
 namespace
 {
@@ -23,9 +25,11 @@ protected:
         std::srand(unsigned(std::time(nullptr)));
         result_receptor_mock_ =
             std::make_unique<NiceMock<MessageDeserializationResultReceptorMock>>();
+        rsa_mock_ = std::make_shared<NiceMock<RSACipherMock>>();
     }
 
     std::unique_ptr<MessageDeserializationResultReceptorMock> result_receptor_mock_;
+    std::shared_ptr<RSACipherMock>                            rsa_mock_;
 };
 }  // namespace
 
@@ -118,13 +122,13 @@ TEST_F(MessageSerializerTest, SerializeRequest_DNLSync)
 TEST_F(MessageSerializerTest, SerializeRequest_Search)
 {
     SearchMessage req;
-    req.request_id = 7;
-    req.search_id  = 0x19c5d0b4db434a14;
-    testutils::random_values(req.sender_public_key.begin(), req.sender_public_key.size());
+    req.request_id        = 7;
+    req.search_id         = 0x19c5d0b4db434a14;
+    req.sender_public_key = "Ionut Cercel - Made in Romania - manele vechi";
     testutils::random_values(req.file_hash.begin(), req.file_hash.size());
 
     std::vector<uint8_t> expected {0x40, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
-        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19};
+        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19, uint8_t(req.sender_public_key.size()), 0x00};
     std::copy(
         req.sender_public_key.cbegin(), req.sender_public_key.cend(), std::back_inserter(expected));
     std::copy(req.file_hash.cbegin(), req.file_hash.cend(), std::back_inserter(expected));
@@ -133,6 +137,56 @@ TEST_F(MessageSerializerTest, SerializeRequest_Search)
     auto                  bytes = serializer.serialize(req);
 
     EXPECT_EQ(bytes, expected);
+}
+
+TEST_F(MessageSerializerTest, SerializeRequest_Search_PublicKeyTooLarge)
+{
+    SearchMessage req;
+    req.request_id = 7;
+    req.search_id  = 0x19c5d0b4db434a14;
+    req.sender_public_key.resize(size_t(std::numeric_limits<uint16_t>::max()) + 1);
+    testutils::random_values(req.file_hash.begin(), req.file_hash.size());
+    testutils::random_values(req.sender_public_key.begin(), req.sender_public_key.size());
+
+    MessageSerializerImpl serializer;
+    auto                  bytes = serializer.serialize(req);
+
+    EXPECT_EQ(bytes.size(), 0);
+}
+
+TEST_F(MessageSerializerTest, SerializeRequest_Offer)
+{
+    OfferMessage req;
+    req.request_id = 17;
+    req.search_id  = 0x19c5d0b4db434a14;
+    req.offer_id   = 0x198971b3068d7e4d;
+    req.encrypted_data.resize(0x1234);
+    testutils::random_values(req.encrypted_data.begin(), req.encrypted_data.size());
+
+    std::vector<uint8_t> expected {0x41, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
+        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19, 0x4d, 0x7e, 0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x34,
+        0x12};
+    std::copy(req.encrypted_data.cbegin(), req.encrypted_data.cend(), std::back_inserter(expected));
+
+    MessageSerializerImpl serializer;
+    auto                  bytes = serializer.serialize(req);
+
+    EXPECT_EQ(bytes, expected);
+}
+
+TEST_F(MessageSerializerTest, SerializeRequest_Offer_EncryptedDataTooLarge)
+{
+    OfferMessage req;
+    req.request_id = 17;
+    req.search_id  = 0x19c5d0b4db434a14;
+    req.offer_id   = 0x198971b3068d7e4d;
+    req.encrypted_data.resize(0x12345);
+    testutils::random_values(req.encrypted_data.begin(), req.encrypted_data.size());
+
+    MessageSerializerImpl serializer;
+    auto                  bytes = serializer.serialize(req);
+
+    EXPECT_EQ(bytes.size(), 0);
 }
 
 TEST_F(MessageSerializerTest, SerializeRequest_Uncache)
@@ -438,13 +492,12 @@ TEST_F(MessageSerializerTest, DeserializeRequest_DNLSync_Invalid)
 TEST_F(MessageSerializerTest, DeserializeRequest_Search)
 {
     SearchId      search_id = 0x19c5d0b4db434a14;
-    NodePublicKey pub_key;
+    NodePublicKey pub_key   = "NICOLAE GUTA TOATE POZELE CU TINE - MANELE VECHI";
     AHash         file_hash;
-    testutils::random_values(pub_key.begin(), pub_key.size());
     testutils::random_values(file_hash.begin(), file_hash.size());
 
     std::vector<uint8_t> bytes {0x40, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
-        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19};
+        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19, uint8_t(pub_key.size()), 0x00};
     std::copy(pub_key.cbegin(), pub_key.cend(), std::back_inserter(bytes));
     std::copy(file_hash.cbegin(), file_hash.cend(), std::back_inserter(bytes));
 
@@ -462,15 +515,55 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Search)
 
 TEST_F(MessageSerializerTest, DeserializeRequest_Search_Invalid)
 {
-    NodePublicKey pub_key;
+    NodePublicKey pub_key = "Generic - Banii n-aduc fericirea - CD - S-a rupt lantul de iubire";
     AHash         file_hash;
-    testutils::random_values(pub_key.begin(), pub_key.size());
     testutils::random_values(file_hash.begin(), file_hash.size());
 
     std::vector<uint8_t> bytes {0x40, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
-        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19};
+        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19, uint8_t(pub_key.size()), 0x00};
     std::copy(pub_key.cbegin(), pub_key.cend(), std::back_inserter(bytes));
     std::copy(file_hash.cbegin(), file_hash.cend(), std::back_inserter(bytes));
+    bytes.resize(bytes.size() - 1);
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_Offer)
+{
+    SearchId          search_id = 0x19c5d0b4db434a14;
+    OfferId           offer_id  = 0x198971b3068d7e4d;
+    std::vector<Byte> encrypted_data(0x1234);
+    testutils::random_values(encrypted_data.begin(), encrypted_data.size());
+
+    std::vector<uint8_t> bytes {0x41, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
+        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19, 0x4d, 0x7e, 0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x34,
+        0x12};
+    std::copy(encrypted_data.cbegin(), encrypted_data.cend(), std::back_inserter(bytes));
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_,
+        deserialized(Matcher<const OfferMessage &>(
+            AllOf(Field(&OfferMessage::message_code, MessageCode::OFFER),
+                Field(&OfferMessage::request_id, 17), Field(&OfferMessage::search_id, search_id),
+                Field(&OfferMessage::offer_id, offer_id),
+                Field(&OfferMessage::encrypted_data, encrypted_data)))))
+        .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_Offer_Invalid)
+{
+    std::vector<Byte> encrypted_data(0x1234);
+    testutils::random_values(encrypted_data.begin(), encrypted_data.size());
+
+    std::vector<uint8_t> bytes {0x41, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
+        0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19, 0x4d, 0x7e, 0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x34,
+        0x12};
+    std::copy(encrypted_data.cbegin(), encrypted_data.cend(), std::back_inserter(bytes));
     bytes.resize(bytes.size() - 1);
 
     MessageSerializerImpl serializer;

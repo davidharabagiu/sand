@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -19,7 +20,7 @@ using Timestamp     = std::chrono::time_point<std::chrono::system_clock>;
 using SearchId      = uint64_t;
 using OfferId       = uint64_t;
 using Byte          = uint8_t;
-using NodePublicKey = std::array<Byte, 128>;
+using NodePublicKey = std::string;
 using AHash         = std::array<Byte, 92>;
 using TransferKey   = std::array<Byte, 16>;
 using PartSize      = uint32_t;
@@ -188,18 +189,22 @@ struct SearchMessage : public Message
 
 struct OfferMessage : public Message
 {
-    struct PartData
+    struct SecretData
     {
-        network::IPv4Address drop_point;
-        FileSize             part_offset;
-        PartSize             part_size;
+        struct PartData
+        {
+            network::IPv4Address drop_point;
+            FileSize             part_offset;
+            PartSize             part_size;
+        };
+
+        TransferKey           transfer_key;
+        std::vector<PartData> parts;
     };
 
-    SearchId              search_id {};
-    OfferId               offer_id {};
-    NodePublicKey         receiver_public_key {};
-    TransferKey           transfer_key {};
-    std::vector<PartData> parts;
+    SearchId          search_id {};
+    OfferId           offer_id {};
+    std::vector<Byte> encrypted_data;
 
     OfferMessage()
         : Message {MessageCode::OFFER}
