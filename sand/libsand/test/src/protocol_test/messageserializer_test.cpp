@@ -8,12 +8,10 @@
 #include "protocoltestutils.hpp"
 
 #include "messagedeserializationresultreceptor_mock.hpp"
-#include "rsacipher_mock.hpp"
 
 using namespace ::testing;
 using namespace ::sand::protocol;
 using namespace ::sand::network;
-using namespace ::sand::crypto;
 
 namespace
 {
@@ -25,11 +23,9 @@ protected:
         std::srand(unsigned(std::time(nullptr)));
         result_receptor_mock_ =
             std::make_unique<NiceMock<MessageDeserializationResultReceptorMock>>();
-        rsa_mock_ = std::make_shared<NiceMock<RSACipherMock>>();
     }
 
     std::unique_ptr<MessageDeserializationResultReceptorMock> result_receptor_mock_;
-    std::shared_ptr<RSACipherMock>                            rsa_mock_;
 };
 }  // namespace
 
