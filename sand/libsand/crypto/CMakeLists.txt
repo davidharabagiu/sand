@@ -12,6 +12,9 @@ target_include_directories(${TARGET_NAME}
         PUBLIC inc/public
         PRIVATE inc/private)
 
+find_library(CRYPTO_LIB crypto REQUIRED)
 find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME}
-        ${GLOG_LIB})
+        ${GLOG_LIB}
+        ${CRYPTO_LIB}
+        utils)

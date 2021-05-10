@@ -5,7 +5,7 @@
 
 namespace sand
 {
-SAND_API void LogSomething();
+SAND_API void Test();
 }  // namespace sand
 
 #endif  // LIBSAND_HELLO_HPP_

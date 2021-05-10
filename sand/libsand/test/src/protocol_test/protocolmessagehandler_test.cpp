@@ -5,8 +5,8 @@
 #include <thread>
 
 #include "protocolmessagehandlerimpl.hpp"
-#include "protocoltestutils.hpp"
 #include "random.hpp"
+#include "testutils.hpp"
 
 #include "messageserializer_mock.hpp"
 #include "protocolmessagelistener_mock.hpp"

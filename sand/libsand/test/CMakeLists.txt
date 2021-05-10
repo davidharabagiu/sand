@@ -4,13 +4,15 @@ project(libsand_test)
 set(TARGET_NAME sand_test)
 
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
+include(${SAND_CMAKE_SCRIPTS_DIR}/check_asan.cmake REQUIRED)
 
 file(GLOB_RECURSE SRC_FILES *.cpp)
 add_executable(${TARGET_NAME} ${SRC_FILES})
 
 target_include_directories(${TARGET_NAME}
         PRIVATE "inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/private")
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/private"
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/private")
 
 find_library(GTEST_LIB gtest REQUIRED)
 find_library(GMOCK_LIB gmock REQUIRED)

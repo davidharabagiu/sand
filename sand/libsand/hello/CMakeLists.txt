@@ -5,15 +5,19 @@ set(TARGET_NAME sand)
 
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
 
-file(GLOB_RECURSE SRC_FILES . *.cpp)
+file(GLOB_RECURSE SRC_FILES *.cpp)
 add_library(${TARGET_NAME} SHARED ${SRC_FILES})
 
 target_compile_definitions(${TARGET_NAME} PRIVATE SAND_BUILD_SHARED_LIB)
-target_include_directories(${TARGET_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/libsand/include)
+target_include_directories(${TARGET_NAME}
+        PUBLIC "${CMAKE_SOURCE_DIR}/libsand/include"
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/private")
 
 find_library(GLOG_LIB glog REQUIRED)
-find_library(CRYPTO_LIB crypto REQUIRED)
-target_link_libraries(${TARGET_NAME} ${GLOG_LIB} ${CRYPTO_LIB})
+target_link_libraries(${TARGET_NAME}
+        ${GLOG_LIB}
+        crypto
+        utils)
 
 install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX})
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/libsand/include DESTINATION .)

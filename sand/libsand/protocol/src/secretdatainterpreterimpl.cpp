@@ -4,8 +4,10 @@
 
 namespace sand::protocol
 {
-SecretDataInterpreterImpl::SecretDataInterpreterImpl(std::shared_ptr<const crypto::RSACipher> rsa)
+SecretDataInterpreterImpl::SecretDataInterpreterImpl(std::shared_ptr<const crypto::RSACipher> rsa,
+    std::shared_ptr<utils::Executer> crypto_job_executer)
     : rsa_ {std::move(rsa)}
+    , crypto_job_executer_ {std::move(crypto_job_executer)}
 {
 }
 
@@ -13,9 +15,15 @@ std::pair<OfferMessage::SecretData, bool> SecretDataInterpreterImpl::decrypt_off
     const std::vector<Byte> &encrypted, const sand::crypto::RSACipher::Key &private_key) const
 {
     bool ok             = true;
-    auto decrypted_data = rsa_->decrypt(private_key, encrypted);
-    auto dd_begin       = decrypted_data.begin();
-    auto dd_end         = decrypted_data.end();
+    auto decrypted_data = rsa_->decrypt(private_key, encrypted, *crypto_job_executer_).get();
+    if (decrypted_data.empty())
+    {
+        LOG(ERROR) << "RSA decryption error";
+        return {{}, false};
+    }
+
+    auto dd_begin = decrypted_data.begin();
+    auto dd_end   = decrypted_data.end();
 
     OfferMessage::SecretData secret;
 
@@ -78,6 +86,11 @@ std::vector<Byte> SecretDataInterpreterImpl::encrypt_offer_message(
         dest = serialization::serialize_field(part_data.part_size, dest);
     }
 
-    return rsa_->encrypt(public_key, to_encrypt);
+    auto encrypted = rsa_->encrypt(public_key, to_encrypt, *crypto_job_executer_).get();
+    if (encrypted.empty())
+    {
+        LOG(ERROR) << "RSA encryption error";
+    }
+    return encrypted;
 }
 }  // namespace sand::protocol

@@ -1,5 +1,5 @@
-#ifndef SAND_TEST_PROTOCOLTESTUTILS_HPP_
-#define SAND_TEST_PROTOCOLTESTUTILS_HPP_
+#ifndef SAND_TEST_TESTUTILS_HPP_
+#define SAND_TEST_TESTUTILS_HPP_
 
 #include <cstddef>
 #include <cstdlib>
@@ -21,4 +21,4 @@ inline auto random_values(OutputIt dst, size_t count) -> std::enable_if_t<std::i
 }
 }  // namespace testutils
 
-#endif  // SAND_TEST_PROTOCOLTESTUTILS_HPP_
+#endif  // SAND_TEST_TESTUTILS_HPP_

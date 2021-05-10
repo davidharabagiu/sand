@@ -3,9 +3,10 @@
 #include <cstdlib>
 #include <ctime>
 
-#include "protocoltestutils.hpp"
 #include "secretdatainterpreterimpl.hpp"
+#include "testutils.hpp"
 
+#include "executer_mock.hpp"
 #include "rsacipher_mock.hpp"
 
 using namespace ::testing;
@@ -21,12 +22,19 @@ protected:
     void SetUp() override
     {
         std::srand(unsigned(std::time(nullptr)));
-        rsa_mock_ = std::make_shared<NiceMock<RSACipherMock>>();
+        rsa_mock_      = std::make_shared<NiceMock<RSACipherMock>>();
+        executer_mock_ = std::make_shared<NiceMock<ExecuterMock>>();
     }
 
     std::shared_ptr<RSACipherMock> rsa_mock_;
+    std::shared_ptr<ExecuterMock>  executer_mock_;
 };
 }  // namespace
+
+MATCHER_P(Address, rhs, "the result of std::addressof(argument) matches rhs")
+{
+    return std::addressof(arg) == rhs;
+}
 
 TEST_F(SecretDataInterpreterTest, EncryptSecretData_OfferMessage)
 {
@@ -49,16 +57,20 @@ TEST_F(SecretDataInterpreterTest, EncryptSecretData_OfferMessage)
             encryption);
     }
 
-    EXPECT_CALL(*rsa_mock_, encrypt(pubk, _))
+    EXPECT_CALL(*rsa_mock_, encrypt(pubk, _, Address(executer_mock_.get()), 1))
         .Times(1)
-        .WillOnce([&](const RSACipher::Key &, const RSACipher::ByteVector &plain_text) {
-            RSACipher::ByteVector encrypted;
-            std::transform(
-                plain_text.cbegin(), plain_text.cend(), std::back_inserter(encrypted), encryption);
-            return encrypted;
-        });
+        .WillOnce(
+            [&](const RSACipher::Key &, const RSACipher::ByteVector &plain_text, Executer &, int) {
+                std::promise<RSACipher::ByteVector> promise;
+                auto                                future = promise.get_future();
+                RSACipher::ByteVector               encrypted;
+                std::transform(plain_text.cbegin(), plain_text.cend(),
+                    std::back_inserter(encrypted), encryption);
+                promise.set_value(encrypted);
+                return future;
+            });
 
-    SecretDataInterpreterImpl interpreter {rsa_mock_};
+    SecretDataInterpreterImpl interpreter {rsa_mock_, executer_mock_};
     auto                      bytes = interpreter.encrypt_offer_message(secret, pubk);
 
     EXPECT_EQ(bytes, expected);
@@ -94,16 +106,20 @@ TEST_F(SecretDataInterpreterTest, DecryptSecretData_OfferMessage)
             bytes_part2.cbegin(), bytes_part2.cend(), std::back_inserter(bytes), decryption);
     }
 
-    EXPECT_CALL(*rsa_mock_, decrypt(prik, _))
+    EXPECT_CALL(*rsa_mock_, decrypt(prik, _, Address(executer_mock_.get()), 1))
         .Times(1)
-        .WillOnce([&](const RSACipher::Key &, const RSACipher::ByteVector &cipher_text) {
-            RSACipher::ByteVector decrypted;
-            std::transform(cipher_text.cbegin(), cipher_text.cend(), std::back_inserter(decrypted),
-                decryption);
-            return decrypted;
-        });
+        .WillOnce(
+            [&](const RSACipher::Key &, const RSACipher::ByteVector &cipher_text, Executer &, int) {
+                std::promise<RSACipher::ByteVector> promise;
+                auto                                future = promise.get_future();
+                RSACipher::ByteVector               decrypted;
+                std::transform(cipher_text.cbegin(), cipher_text.cend(),
+                    std::back_inserter(decrypted), decryption);
+                promise.set_value(decrypted);
+                return future;
+            });
 
-    SecretDataInterpreterImpl interpreter {rsa_mock_};
+    SecretDataInterpreterImpl interpreter {rsa_mock_, executer_mock_};
     auto [secret, ok] = interpreter.decrypt_offer_message(bytes, prik);
 
     EXPECT_TRUE(ok);
@@ -135,16 +151,20 @@ TEST_F(SecretDataInterpreterTest, DecryptSecretData_OfferMessage_Invalid)
     }
     bytes.resize(bytes.size() - 1);
 
-    EXPECT_CALL(*rsa_mock_, decrypt(prik, _))
+    EXPECT_CALL(*rsa_mock_, decrypt(prik, _, Address(executer_mock_.get()), 1))
         .Times(1)
-        .WillOnce([&](const RSACipher::Key &, const RSACipher::ByteVector &cipher_text) {
-            RSACipher::ByteVector decrypted;
-            std::transform(cipher_text.cbegin(), cipher_text.cend(), std::back_inserter(decrypted),
-                decryption);
-            return decrypted;
-        });
+        .WillOnce(
+            [&](const RSACipher::Key &, const RSACipher::ByteVector &cipher_text, Executer &, int) {
+                std::promise<RSACipher::ByteVector> promise;
+                auto                                future = promise.get_future();
+                RSACipher::ByteVector               decrypted;
+                std::transform(cipher_text.cbegin(), cipher_text.cend(),
+                    std::back_inserter(decrypted), decryption);
+                promise.set_value(decrypted);
+                return future;
+            });
 
-    SecretDataInterpreterImpl interpreter {rsa_mock_};
+    SecretDataInterpreterImpl interpreter {rsa_mock_, executer_mock_};
     auto [secret, ok] = interpreter.decrypt_offer_message(bytes, prik);
 
     EXPECT_FALSE(ok);

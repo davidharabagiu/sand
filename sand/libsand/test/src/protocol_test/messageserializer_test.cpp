@@ -5,7 +5,7 @@
 #include <cstdlib>
 
 #include "messageserializerimpl.hpp"
-#include "protocoltestutils.hpp"
+#include "testutils.hpp"
 
 #include "messagedeserializationresultreceptor_mock.hpp"
 

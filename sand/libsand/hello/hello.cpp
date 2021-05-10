@@ -1,13 +1,14 @@
 #include "sand/hello.hpp"
 
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 
-#include <cstring>
-
 #include <glog/logging.h>
-#include <openssl/sha.h>
+
+#include "mainexecuter.hpp"
+#include "rsacipherimpl.hpp"
 
 SAND_API_CTOR void init()
 {
@@ -18,18 +19,23 @@ SAND_API_DTOR void uninit()
     LOG(INFO) << "Unloading libsand";
 }
 
-void sand::LogSomething()
+void sand::Test()
 {
-    LOG(INFO) << "Hello";
+    sand::crypto::RSACipherImpl  rsa;
+    sand::crypto::RSACipher::Key pub, pri;
+    sand::utils::MainExecuter    executer;
 
-    const char *  data = "test";
-    unsigned char hash[SHA512_DIGEST_LENGTH];
-    SHA512(reinterpret_cast<const unsigned char *>(data), std::strlen(data), hash);
-
-    std::ostringstream ss;
-    for (auto byte : hash)
+    if (!rsa.generate_key_pair(
+                crypto::RSACipher::M4096, crypto::RSACipher::E65537, pub, pri, executer)
+             .get())
     {
-        ss << std::hex << std::setw(2) << std::setfill('0') << unsigned {byte};
+        LOG(FATAL) << "Cannot generate RSA key pair";
     }
-    LOG(INFO) << ss.str();
+
+    sand::crypto::RSACipher::ByteVector bytes(10000);
+    std::generate(bytes.begin(), bytes.end(), [i = 0]() mutable { return i++; });
+
+    auto encrypted = rsa.encrypt(pub, bytes, executer, 8).get();
+    auto decrypted = rsa.decrypt(pri, encrypted, executer, 8).get();
+    LOG(INFO) << "done";
 }

@@ -3,6 +3,7 @@
 
 #include <memory>
 
+#include "executer.hpp"
 #include "secretdatainterpreter.hpp"
 
 namespace sand::protocol
@@ -10,7 +11,8 @@ namespace sand::protocol
 class SecretDataInterpreterImpl : public SecretDataInterpreter
 {
 public:
-    explicit SecretDataInterpreterImpl(std::shared_ptr<const crypto::RSACipher> rsa);
+    SecretDataInterpreterImpl(std::shared_ptr<const crypto::RSACipher> rsa,
+        std::shared_ptr<utils::Executer>                               crypto_job_executer);
 
     [[nodiscard]] std::pair<OfferMessage::SecretData, bool> decrypt_offer_message(
         const std::vector<Byte> &     encrypted,
@@ -20,6 +22,7 @@ public:
 
 private:
     const std::shared_ptr<const crypto::RSACipher> rsa_;
+    const std::shared_ptr<utils::Executer>         crypto_job_executer_;
 };
 }  // namespace sand::protocol
 
