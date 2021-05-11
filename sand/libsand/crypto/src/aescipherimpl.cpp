@@ -155,9 +155,7 @@ std::future<AESCipherImpl::ByteVector> AESCipherImpl::decrypt(ModeOfOperation mo
         int final_len;
         if (EVP_DecryptFinal_ex(ctx, &plain_text[size_t(decrypt_len)], &final_len) != 1)
         {
-            LOG(ERROR) << "EVP_DecryptFinal_ex failed";
-            promise->set_value({});
-            return;
+            final_len = 0;
         }
 
         plain_text.resize(size_t(decrypt_len + final_len));

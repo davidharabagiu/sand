@@ -11,13 +11,17 @@ ThreadPool::ThreadPool(size_t thread_count)
     threads_.reserve(thread_count);
     for (size_t i = 0; i != thread_count; ++i)
     {
-        threads_.emplace_back([this] { ThreadRoutine(); });
+        threads_.emplace_back(&ThreadPool::ThreadRoutine, this);
     }
 }
 
 ThreadPool::~ThreadPool()
 {
-    running_ = false;
+    {
+        std::lock_guard<std::mutex> lock {mutex_};
+        running_ = false;
+    }
+
     cv_empty_.notify_all();
     for (auto &th : threads_)
     {
