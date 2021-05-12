@@ -47,10 +47,13 @@ constexpr void (ProtocolMessageListener::*InitDownloadMessageNotification)(netwo
 
 ProtocolMessageHandlerImpl::ProtocolMessageHandlerImpl(
     std::shared_ptr<network::TCPSender> tcp_sender, std::shared_ptr<network::TCPServer> tcp_server,
-    std::shared_ptr<const MessageSerializer> message_serializer)
+    std::shared_ptr<const MessageSerializer> message_serializer,
+    std::shared_ptr<utils::Executer> io_executer, int port)
     : tcp_sender_ {std::move(tcp_sender)}
     , tcp_server_ {std::move(tcp_server)}
     , message_serializer_ {std::move(message_serializer)}
+    , io_executer_ {std::move(io_executer)}
+    , port_ {port}
 {
 }
 
@@ -79,42 +82,59 @@ bool ProtocolMessageHandlerImpl::unregister_message_listener(
 }
 
 std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
-    network::IPv4Address to, const Message &message)
+    network::IPv4Address to, std::unique_ptr<Message> message)
 {
-    std::promise<std::unique_ptr<BasicReply>> reply_promise;
-    std::future<std::unique_ptr<BasicReply>>  reply_future = reply_promise.get_future();
+    auto reply_promise = std::make_shared<std::promise<std::unique_ptr<BasicReply>>>();
+    std::future<std::unique_ptr<BasicReply>> reply_future = reply_promise->get_future();
 
     {
         std::lock_guard<std::mutex> _lock {mutex_};
-        if (pending_replies_.count(message.request_id) != 0)
+        if (outgoing_request_ids_.count(message->request_id) != 0 ||
+            pending_replies_.count(message->request_id) != 0)
         {
-            LOG(ERROR) << "Request with id " << message.request_id << " already sent";
+            LOG(ERROR) << "Request with id " << message->request_id << " already sent";
             return {};  // invalid future
         }
+        outgoing_request_ids_.insert(message->request_id);
     }
 
-    auto bytes   = message.serialize(message_serializer_);
-    bool success = tcp_sender_->send(to, bytes.data(), bytes.size());
+    auto bytes              = message->serialize(message_serializer_);
+    auto send_result_future = std::make_shared<std::future<bool>>(
+        tcp_sender_->send(to, port_, bytes.data(), bytes.size()));
 
-    if (message.message_code == MessageCode::BYE)
-    {
-        reply_promise.set_value(nullptr);
-    }
-    else if (success)
-    {
+    std::shared_ptr<Message> shared_message {std::move(message)};
+    io_executer_->AddJob([this, send_result_future, message = shared_message, reply_promise, to] {
+        bool success = send_result_future->get();
+
         std::lock_guard<std::mutex> _lock {mutex_};
-        pending_replies_.emplace(
-            message.request_id, PendingReply {std::move(reply_promise), message.message_code, to});
-    }
-    else
-    {
-        auto reply         = std::make_unique<BasicReply>(message.message_code);
-        reply->request_id  = message.request_id;
-        reply->status_code = StatusCode::UNREACHABLE;
-        reply_promise.set_value(std::move(reply));
-    }
+        outgoing_request_ids_.erase(message->request_id);
+
+        if (message->message_code == MessageCode::BYE)
+        {
+            reply_promise->set_value(nullptr);
+        }
+        else if (success)
+        {
+            pending_replies_.emplace(
+                message->request_id, PendingReply {reply_promise, message->message_code, to});
+        }
+        else
+        {
+            auto reply         = std::make_unique<BasicReply>(message->message_code);
+            reply->request_id  = message->request_id;
+            reply->status_code = StatusCode::UNREACHABLE;
+            reply_promise->set_value(std::move(reply));
+        }
+    });
 
     return reply_future;
+}
+
+std::future<bool> ProtocolMessageHandlerImpl::send_reply(
+    network::IPv4Address to, std::unique_ptr<BasicReply> message)
+{
+    auto bytes = message->serialize(message_serializer_);
+    return tcp_sender_->send(to, port_, bytes.data(), bytes.size());
 }
 
 void ProtocolMessageHandlerImpl::on_message_received(
@@ -278,7 +298,7 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::proce
                      << int(it->second.message_code) << ")";
         return;
     }
-    it->second.promise.set_value(std::move(reply));
+    it->second.promise->set_value(std::move(reply));
     parent_.pending_replies_.erase(it);
 }
 }  // namespace sand::protocol

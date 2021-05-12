@@ -1,7 +1,7 @@
 #ifndef SAND_NETWORK_TCPSENDER_HPP_
 #define SAND_NETWORK_TCPSENDER_HPP_
 
-#include <functional>
+#include <future>
 
 #include "address.hpp"
 
@@ -12,7 +12,7 @@ class TCPSender
 public:
     virtual ~TCPSender() = default;
 
-    virtual bool send(IPv4Address to, const uint8_t *data, size_t len) = 0;
+    virtual std::future<bool> send(IPv4Address to, int port, const uint8_t *data, size_t len) = 0;
 };
 }  // namespace sand::network
 

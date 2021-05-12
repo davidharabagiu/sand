@@ -4,7 +4,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 
+#include "executer.hpp"
 #include "listenergroup.hpp"
 #include "messagedeserializationresultreceptor.hpp"
 #include "messages.hpp"
@@ -31,7 +33,8 @@ class ProtocolMessageHandlerImpl
 public:
     ProtocolMessageHandlerImpl(std::shared_ptr<network::TCPSender> tcp_sender,
         std::shared_ptr<network::TCPServer>                        tcp_server,
-        std::shared_ptr<const MessageSerializer>                   message_serializer);
+        std::shared_ptr<const MessageSerializer>                   message_serializer,
+        std::shared_ptr<utils::Executer> io_executer, int port);
 
     void initialize();
     void uninitialize();
@@ -42,7 +45,9 @@ public:  // From ProtocolMessageHandler
     bool unregister_message_listener(
         const std::shared_ptr<ProtocolMessageListener> &listener) override;
     std::future<std::unique_ptr<BasicReply>> send(
-        network::IPv4Address to, const Message &message) override;
+        network::IPv4Address to, std::unique_ptr<Message> message) override;
+    std::future<bool> send_reply(
+        network::IPv4Address to, std::unique_ptr<BasicReply> message) override;
 
 public:  // From network::TCPMessageListener
     void on_message_received(network::IPv4Address from, const uint8_t *data, size_t len) override;
@@ -81,16 +86,19 @@ private:
 
     struct PendingReply
     {
-        std::promise<std::unique_ptr<BasicReply>> promise;
-        MessageCode                               message_code;
-        network::IPv4Address                      from;
+        std::shared_ptr<std::promise<std::unique_ptr<BasicReply>>> promise;
+        MessageCode                                                message_code;
+        network::IPv4Address                                       from;
     };
 
     utils::ListenerGroup<ProtocolMessageListener>  listener_group_;
     const std::shared_ptr<network::TCPSender>      tcp_sender_;
     const std::shared_ptr<network::TCPServer>      tcp_server_;
     const std::shared_ptr<const MessageSerializer> message_serializer_;
+    const std::shared_ptr<utils::Executer>         io_executer_;
     std::map<RequestId, PendingReply>              pending_replies_;
+    std::set<RequestId>                            outgoing_request_ids_;
+    int                                            port_;
     std::mutex                                     mutex_;
 
     friend class RequestDeserializationResultReceptorImpl;
