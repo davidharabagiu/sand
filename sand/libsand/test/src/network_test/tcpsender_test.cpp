@@ -34,6 +34,8 @@ protected:
 };
 }  // namespace
 
+#include <iostream>
+
 TEST_F(TCPSenderTest, SendMessage)
 {
     const std::string msg_to_send {"Drobeta-Turnu Severin"};
@@ -48,8 +50,8 @@ TEST_F(TCPSenderTest, SendMessage)
 
         char data[128];
         data[socket.read_some(buffer(data, 128))] = '\0';
-        EXPECT_EQ(std::string(data), msg_to_send);
 
+        EXPECT_EQ(std::string(data), msg_to_send);
         {
             std::lock_guard<std::mutex> lock {m};
             message_received = true;
@@ -69,7 +71,7 @@ TEST_F(TCPSenderTest, SendMessage)
     EXPECT_TRUE(send_status_future.get());
 
     std::unique_lock<std::mutex> lock {m};
-    cv.wait_for(lock, std::chrono::milliseconds {100}, [&] { return message_received; });
+    cv.wait_for(lock, std::chrono::milliseconds {10000}, [&] { return message_received; });
     EXPECT_TRUE(message_received);
 
     t_ctx_sender.join();

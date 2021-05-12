@@ -31,6 +31,7 @@ bool TCPServerImpl::unregister_listener(std::shared_ptr<TCPMessageListener> list
 
 void TCPServerImpl::listen()
 {
+    acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address {true});
     acceptor_.listen();
     accept_loop();
 }
@@ -47,15 +48,16 @@ void TCPServerImpl::accept_loop()
 
         IPv4Address from =
             conversion::to_ipv4_address(socket.remote_endpoint().address().to_string());
-        auto buffer = std::make_shared<boost::asio::streambuf>();
+        auto buffer        = std::make_shared<boost::asio::streambuf>();
+        auto shared_socket = std::make_shared<decltype(socket)>(std::move(socket));
 
-        boost::asio::async_read(socket, *buffer, boost::asio::transfer_all(),
-            [this, buffer, from](
+        boost::asio::async_read(*shared_socket, *buffer, boost::asio::transfer_all(),
+            [this, buffer, from, shared_socket](
                 const boost::system::error_code &read_error, std::size_t bytes_read) {
                 if (read_error)
                 {
                     LOG(WARNING) << read_error.message();
-                    return;
+                    // return;
                 }
                 if (bytes_read == 0)
                 {
@@ -63,7 +65,7 @@ void TCPServerImpl::accept_loop()
                     return;
                 }
                 listener_group_.notify(&TCPMessageListener::on_message_received, from,
-                    boost::asio::buffer_cast<const uint8_t *>(buffer->data()), buffer->size());
+                    boost::asio::buffer_cast<const uint8_t *>(buffer->data()), bytes_read);
             });
 
         accept_loop();
