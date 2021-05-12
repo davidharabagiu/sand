@@ -12,7 +12,8 @@ add_executable(${TARGET_NAME} ${SRC_FILES})
 target_include_directories(${TARGET_NAME}
         PRIVATE "inc/private"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/private")
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/private"
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/network/inc/private")
 
 find_library(GTEST_LIB gtest REQUIRED)
 find_library(GMOCK_LIB gmock REQUIRED)

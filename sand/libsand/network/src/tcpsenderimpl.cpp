@@ -22,7 +22,7 @@ std::future<bool> TCPSenderImpl::send(IPv4Address to, int port, const uint8_t *d
 
     boost::asio::async_connect(*socket,
         resolver_.resolve(conversion::to_string(to), std::to_string(port)),
-        [promise, socket, data = boost::asio::buffer(data, len)](
+        [promise, socket, data = std::vector<uint8_t>(data, data + len)](
             const boost::system::error_code &ec_connect,
             const boost::asio::ip::tcp::endpoint & /*ep*/) {
             if (ec_connect)
@@ -32,7 +32,7 @@ std::future<bool> TCPSenderImpl::send(IPv4Address to, int port, const uint8_t *d
                 return;
             }
 
-            boost::asio::async_write(*socket, data,
+            boost::asio::async_write(*socket, boost::asio::buffer(data),
                 [promise](const boost::system::error_code &ec_write, size_t /*bytes_transferred*/) {
                     if (ec_write)
                     {

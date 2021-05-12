@@ -50,6 +50,7 @@ TEST_F(ThreadPoolTest, SamePriority_PreserveInsertionOrder)
     std::unique_lock<std::mutex> lock {mut};
     bool                         done =
         cv.wait_for(lock, std::chrono::milliseconds {100}, [&] { return total_jobs == done_jobs; });
+    lock.release();
     bool ordered = std::is_sorted(execution_order.cbegin(), execution_order.cend());
 
     EXPECT_TRUE(done);
@@ -82,6 +83,7 @@ TEST_F(ThreadPoolTest, SamePriority_MultipleThreads)
     std::unique_lock<std::mutex> lock {mut};
     bool                         done =
         cv.wait_for(lock, std::chrono::milliseconds {100}, [&] { return total_jobs == done_jobs; });
+    lock.release();
 
     EXPECT_TRUE(done);
 }
@@ -136,6 +138,7 @@ TEST_F(ThreadPoolTest, DifferentPriorities_PreserveOrder)
         cv.wait_for(lock, std::chrono::milliseconds {100}, [&] { return total_jobs == done_jobs; });
     bool ordered = std::is_sorted(
         execution_order.cbegin(), execution_order.cend(), [](auto p1, auto p2) { return p1 > p2; });
+    lock.release();
 
     EXPECT_TRUE(done);
     EXPECT_TRUE(ordered);
@@ -168,6 +171,7 @@ TEST_F(ThreadPoolTest, DifferentPriorities_MultipleThreads)
     std::unique_lock<std::mutex> lock {mut};
     bool                         done =
         cv.wait_for(lock, std::chrono::milliseconds {100}, [&] { return total_jobs == done_jobs; });
+    lock.release();
 
     EXPECT_TRUE(done);
 }

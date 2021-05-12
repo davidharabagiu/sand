@@ -10,7 +10,7 @@ namespace sand::network
 class TCPSenderImpl : public TCPSender
 {
 public:
-    TCPSenderImpl(boost::asio::io_context &io_ctx);
+    explicit TCPSenderImpl(boost::asio::io_context &io_ctx);
     std::future<bool> send(IPv4Address to, int port, const uint8_t *data, size_t len) override;
 
 private:

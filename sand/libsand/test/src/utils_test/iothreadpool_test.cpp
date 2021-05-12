@@ -41,6 +41,7 @@ protected:
 
         std::unique_lock<std::mutex> lock {mut};
         bool done = cv.wait_for(lock, timeout, [&] { return total_jobs == done_jobs; });
+        lock.release();
 
         EXPECT_TRUE(done);
     }
