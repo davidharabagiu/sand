@@ -11,7 +11,8 @@ class TCPSenderImpl : public TCPSender
 {
 public:
     explicit TCPSenderImpl(boost::asio::io_context &io_ctx);
-    std::future<bool> send(IPv4Address to, int port, const uint8_t *data, size_t len) override;
+    std::future<bool> send(
+        IPv4Address to, unsigned short port, const uint8_t *data, size_t len) override;
 
 private:
     boost::asio::io_context &      io_ctx_;

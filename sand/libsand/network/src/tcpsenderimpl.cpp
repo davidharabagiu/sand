@@ -14,14 +14,15 @@ TCPSenderImpl::TCPSenderImpl(boost::asio::io_context &io_ctx)
 {
 }
 
-std::future<bool> TCPSenderImpl::send(IPv4Address to, int port, const uint8_t *data, size_t len)
+std::future<bool> TCPSenderImpl::send(
+    IPv4Address to, unsigned short port, const uint8_t *data, size_t len)
 {
     auto promise = std::make_shared<std::promise<bool>>();
     auto future  = promise->get_future();
     auto socket  = std::make_shared<boost::asio::ip::tcp::socket>(io_ctx_);
 
     boost::asio::async_connect(*socket,
-        resolver_.resolve(conversion::to_string(to), std::to_string(port)),
+        resolver_.resolve(conversion::to_string(to), std::to_string(int(port))),
         [promise, socket, data = std::vector<uint8_t>(data, data + len)](
             const boost::system::error_code &ec_connect,
             const boost::asio::ip::tcp::endpoint & /*ep*/) {

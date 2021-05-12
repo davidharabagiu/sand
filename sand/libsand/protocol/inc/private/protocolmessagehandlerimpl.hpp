@@ -34,7 +34,7 @@ public:
     ProtocolMessageHandlerImpl(std::shared_ptr<network::TCPSender> tcp_sender,
         std::shared_ptr<network::TCPServer>                        tcp_server,
         std::shared_ptr<const MessageSerializer>                   message_serializer,
-        std::shared_ptr<utils::Executer> io_executer, int port);
+        std::shared_ptr<utils::Executer> io_executer, unsigned short port);
 
     void initialize();
     void uninitialize();
@@ -98,7 +98,7 @@ private:
     const std::shared_ptr<utils::Executer>         io_executer_;
     std::map<RequestId, PendingReply>              pending_replies_;
     std::set<RequestId>                            outgoing_request_ids_;
-    int                                            port_;
+    unsigned short                                 port_;
     std::mutex                                     mutex_;
 
     friend class RequestDeserializationResultReceptorImpl;

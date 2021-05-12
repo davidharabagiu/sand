@@ -48,7 +48,7 @@ constexpr void (ProtocolMessageListener::*InitDownloadMessageNotification)(netwo
 ProtocolMessageHandlerImpl::ProtocolMessageHandlerImpl(
     std::shared_ptr<network::TCPSender> tcp_sender, std::shared_ptr<network::TCPServer> tcp_server,
     std::shared_ptr<const MessageSerializer> message_serializer,
-    std::shared_ptr<utils::Executer> io_executer, int port)
+    std::shared_ptr<utils::Executer> io_executer, unsigned short port)
     : tcp_sender_ {std::move(tcp_sender)}
     , tcp_server_ {std::move(tcp_server)}
     , message_serializer_ {std::move(message_serializer)}

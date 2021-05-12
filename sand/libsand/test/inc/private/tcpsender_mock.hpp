@@ -10,7 +10,8 @@ using namespace sand::network;
 class TCPSenderMock : public TCPSender
 {
 public:
-    MOCK_METHOD(std::future<bool>, send, (IPv4Address, int, const uint8_t *, size_t), (override));
+    MOCK_METHOD(std::future<bool>, send, (IPv4Address, unsigned short, const uint8_t *, size_t),
+        (override));
 };
 
 #endif  // SAND_TEST_TCPSENDER_MOCK_HPP_

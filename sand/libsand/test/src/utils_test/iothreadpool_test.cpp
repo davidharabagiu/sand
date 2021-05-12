@@ -16,7 +16,7 @@ protected:
     {
     }
 
-    void RunTest(int total_jobs)
+    static void RunTest(int total_jobs)
     {
         IOThreadPool thread_pool;
 

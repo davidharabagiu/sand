@@ -12,7 +12,8 @@ class TCPSender
 public:
     virtual ~TCPSender() = default;
 
-    virtual std::future<bool> send(IPv4Address to, int port, const uint8_t *data, size_t len) = 0;
+    virtual std::future<bool> send(
+        IPv4Address to, unsigned short port, const uint8_t *data, size_t len) = 0;
 };
 }  // namespace sand::network
 

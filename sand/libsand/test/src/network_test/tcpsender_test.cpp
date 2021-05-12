@@ -96,7 +96,8 @@ TEST_F(TCPSenderTest, SendMessage_InvalidDestinationEndpoint)
 
     TCPSenderImpl sender {sender_context_};
 
-    auto send_status_future = sender.send(conversion::to_ipv4_address("127.0.0.1"), port_ + 1,
+    auto send_status_future = sender.send(conversion::to_ipv4_address("127.0.0.1"),
+        static_cast<unsigned short>(port_ + 1),
         reinterpret_cast<const uint8_t *>(msg_to_send.data()), msg_to_send.size());
 
     std::thread t_ctx_sender {[&] { sender_context_.run(); }};
