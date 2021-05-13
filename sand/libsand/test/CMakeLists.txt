@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.17)
 project(libsand_test)
 
 set(TARGET_NAME sand_test)
+set(RES_TARGET_NAME sand_test_res)
 
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
 include(${SAND_CMAKE_SCRIPTS_DIR}/check_asan.cmake REQUIRED)
@@ -27,4 +28,10 @@ target_link_libraries(${TARGET_NAME}
         utils
         flows)
 
+add_custom_target(${RES_TARGET_NAME} ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/res/
+        ${CMAKE_CURRENT_BINARY_DIR}/test)
+
 install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX})
+install(DIRECTORY res/ DESTINATION test)
