@@ -54,10 +54,10 @@ void TCPServerImpl::accept_loop()
         boost::asio::async_read(*shared_socket, *buffer, boost::asio::transfer_all(),
             [this, buffer, from, shared_socket](
                 const boost::system::error_code &read_error, std::size_t bytes_read) {
-                if (read_error)
+                if (read_error && read_error != boost::asio::error::eof)
                 {
                     LOG(WARNING) << read_error.message();
-                    // return;
+                    return;
                 }
                 if (bytes_read == 0)
                 {

@@ -13,7 +13,8 @@ target_include_directories(${TARGET_NAME}
         PRIVATE "inc/private"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/private"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/network/inc/private")
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/network/inc/private"
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/flows/inc/private")
 
 find_library(GTEST_LIB gtest REQUIRED)
 find_library(GMOCK_LIB gmock REQUIRED)
@@ -23,6 +24,7 @@ target_link_libraries(${TARGET_NAME}
         pthread
         network
         protocol
-        utils)
+        utils
+        flows)
 
 install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX})
