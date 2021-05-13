@@ -1,6 +1,8 @@
 #ifndef SAND_TEST_TESTUTILS_HPP_
 #define SAND_TEST_TESTUTILS_HPP_
 
+#include <gmock/gmock.h>
+
 #include <cstddef>
 #include <cstdlib>
 #include <string>
@@ -20,5 +22,10 @@ inline auto random_values(OutputIt dst, size_t count) -> std::enable_if_t<std::i
     }
 }
 }  // namespace testutils
+
+MATCHER_P(SmartPointerCompare, rhs, "Compares a smart pointer to a raw pointer")
+{
+    return arg.get() == rhs;
+}
 
 #endif  // SAND_TEST_TESTUTILS_HPP_

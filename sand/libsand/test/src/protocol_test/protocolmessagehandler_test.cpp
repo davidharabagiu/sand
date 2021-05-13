@@ -46,11 +46,6 @@ MATCHER_P(
     return std::equal(container.cbegin(), container.cend(), arg);
 }
 
-MATCHER_P(SmartPointerCompare, rhs, "Compares a smart pointer to a raw pointer")
-{
-    return arg.get() == rhs;
-}
-
 TEST_F(ProtocolMessageHandlerTest, RegistersForInboundTCPMessages)
 {
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
