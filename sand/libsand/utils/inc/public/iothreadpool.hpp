@@ -19,8 +19,7 @@ public:
     IOThreadPool &operator=(const IOThreadPool &) = delete;
 
     ~IOThreadPool() override;
-    void AddJob(const Job &job, Priority /*priority*/ = Executer::default_priority) override;
-    void AddJob(Job &&job, Priority /*priority*/ = Executer::default_priority) override;
+    void add_job(Job &&job, Priority /*priority*/ = default_priority) override;
 
 private:
     void ThreadRoutine();

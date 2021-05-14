@@ -11,9 +11,8 @@ public:
     using Job      = std::function<void()>;
     using Priority = int;
 
-    virtual ~Executer()                                                       = default;
-    virtual void AddJob(const Job &job, Priority priority = default_priority) = 0;
-    virtual void AddJob(Job &&job, Priority priority = default_priority)      = 0;
+    virtual ~Executer()                                                   = default;
+    virtual void add_job(Job &&job, Priority priority = default_priority) = 0;
 
     static constexpr Priority default_priority = 0;
 };

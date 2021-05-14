@@ -29,7 +29,7 @@ protected:
 
         for (int i = 0; i != total_jobs; ++i)
         {
-            thread_pool.AddJob([&] {
+            thread_pool.add_job([&] {
                 std::this_thread::sleep_for(job_duration);
                 {
                     std::lock_guard<std::mutex> lock {mut};

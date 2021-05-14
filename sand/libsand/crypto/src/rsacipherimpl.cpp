@@ -22,7 +22,7 @@ std::future<bool> RSACipherImpl::generate_key_pair(ModulusSize modulus_size,
 {
     auto promise = std::make_shared<std::promise<bool>>();
 
-    executer.AddJob([promise, modulus_size, public_exponent, &public_key, &private_key] {
+    executer.add_job([promise, modulus_size, public_exponent, &public_key, &private_key] {
         bool ret = false;
         DEFER(promise->set_value(ret));
 
@@ -189,7 +189,7 @@ std::future<RSACipher::ByteVector> RSACipherImpl::start_operation(const Key &key
     {
         last_block = (i == job_count - 1) ? (block_count - 1) : (first_block + blocks_per_job - 1);
 
-        executer.AddJob([operation, crypto_function, first_block, last_block, job_index = i] {
+        executer.add_job([operation, crypto_function, first_block, last_block, job_index = i] {
             ByteVector partial_result;
 
             for (size_t current_block = first_block; current_block <= last_block; ++current_block)

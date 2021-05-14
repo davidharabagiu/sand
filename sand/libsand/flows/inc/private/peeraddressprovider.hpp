@@ -14,6 +14,7 @@ public:
     virtual ~PeerAddressProvider() = default;
 
     virtual std::future<std::vector<network::IPv4Address>> get_peers(int count) = 0;
+    virtual void remove_peer(network::IPv4Address addr)                         = 0;
 };
 }  // namespace sand::flows
 

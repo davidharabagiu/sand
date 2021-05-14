@@ -8,8 +8,7 @@ namespace sand::utils
 class MainExecuter : public Executer
 {
 public:
-    void AddJob(const Job &job, Priority priority) override;
-    void AddJob(Job &&job, Priority priority) override;
+    void add_job(Job &&job, Priority priority = default_priority) override;
 };
 }  // namespace sand::utils
 

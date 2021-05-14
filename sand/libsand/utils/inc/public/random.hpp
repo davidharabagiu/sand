@@ -1,7 +1,9 @@
 #ifndef SAND_UTILS_RANDOM_HPP_
 #define SAND_UTILS_RANDOM_HPP_
 
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <random>
 #include <type_traits>
@@ -26,6 +28,14 @@ public:
     {
         std::uniform_int_distribution<Int> d {min, max};
         return d(prng_);
+    }
+
+    template<typename Iter>
+    auto shuffle(Iter begin, Iter end)
+        -> std::enable_if_t<std::is_same_v<typename std::iterator_traits<Iter>::iterator_category,
+            std::random_access_iterator_tag>>
+    {
+        std::shuffle(begin, end, prng_);
     }
 
 private:

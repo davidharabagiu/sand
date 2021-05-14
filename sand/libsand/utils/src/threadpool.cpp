@@ -29,13 +29,7 @@ ThreadPool::~ThreadPool()
     }
 }
 
-void ThreadPool::AddJob(const Job &job, Priority priority)
-{
-    auto job_copy = job;
-    AddJob(std::move(job_copy), priority);
-}
-
-void ThreadPool::AddJob(Job &&job, Priority priority)
+void ThreadPool::add_job(Job &&job, Priority priority)
 {
     {
         std::lock_guard<std::mutex> lock {mutex_};

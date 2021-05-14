@@ -64,7 +64,7 @@ std::future<AESCipherImpl::ByteVector> AESCipherImpl::encrypt(ModeOfOperation mo
         return future;
     }
 
-    executer.AddJob([promise, cipher, key, iv, plain_text] {
+    executer.add_job([promise, cipher, key, iv, plain_text] {
         constexpr size_t aes_block_size = 16;
 
         auto ctx = EVP_CIPHER_CTX_new();
@@ -124,7 +124,7 @@ std::future<AESCipherImpl::ByteVector> AESCipherImpl::decrypt(ModeOfOperation mo
         return future;
     }
 
-    executer.AddJob([promise, cipher, key, iv, cipher_text] {
+    executer.add_job([promise, cipher, key, iv, cipher_text] {
         auto ctx = EVP_CIPHER_CTX_new();
         if (ctx == nullptr)
         {

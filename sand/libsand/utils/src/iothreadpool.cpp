@@ -24,13 +24,7 @@ IOThreadPool::~IOThreadPool()
     }
 }
 
-void IOThreadPool::AddJob(const Job &job, Executer::Priority priority)
-{
-    Job job_copy = job;
-    AddJob(std::move(job_copy), priority);
-}
-
-void IOThreadPool::AddJob(Job &&job, Executer::Priority /*priority*/)
+void IOThreadPool::add_job(Job &&job, Executer::Priority /*priority*/)
 {
     {
         std::lock_guard<std::mutex> lock {mutex_};

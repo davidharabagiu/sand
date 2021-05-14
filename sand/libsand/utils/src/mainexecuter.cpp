@@ -1,13 +1,10 @@
 #include "mainexecuter.hpp"
 
+#include <memory>
+
 namespace sand::utils
 {
-void MainExecuter::AddJob(const Job &job, Priority /*priority*/)
-{
-    job();
-}
-
-void MainExecuter::AddJob(Job &&job, Priority /*priority*/)
+void MainExecuter::add_job(Job &&job, Priority /*priority*/)
 {
     job();
 }

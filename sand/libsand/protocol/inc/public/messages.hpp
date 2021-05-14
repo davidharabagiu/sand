@@ -48,8 +48,10 @@ enum class MessageCode : uint8_t
 
 enum class StatusCode : uint8_t
 {
-    OK          = 0,
-    UNREACHABLE = 1
+    OK                     = 0,
+    UNREACHABLE            = 1,
+    PEER_LIMIT_REACHED     = 2,
+    RESOURCE_NOT_AVAILABLE = 3
 };
 
 struct Message

@@ -21,8 +21,7 @@ public:
     ThreadPool &operator=(const ThreadPool &) = delete;
 
     ~ThreadPool() override;
-    void AddJob(const Job &job, Priority priority) override;
-    void AddJob(Job &&job, Priority priority) override;
+    void add_job(Job &&job, Priority priority = default_priority) override;
 
     static size_t DefaultThreadCount();
 
