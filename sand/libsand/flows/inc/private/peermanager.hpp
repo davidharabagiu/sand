@@ -26,14 +26,15 @@ namespace sand::flows
 {
 // Forward declarations
 class InboundRequestDispatcher;
+class DNLConfig;
 
 class PeerManager : public PeerAddressProvider
 {
 public:
     PeerManager(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
         std::shared_ptr<InboundRequestDispatcher>                 inbound_request_dispatcher,
-        std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer,
-        size_t peers_limits);
+        std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
+        std::shared_ptr<utils::Executer> io_executer);
     ~PeerManager() override;
 
     std::future<std::vector<network::IPv4Address>> get_peers(int count) override;
@@ -48,25 +49,25 @@ private:
     std::future<void>                 ping_peers();
     std::vector<network::IPv4Address> pick_peers(
         size_t count, const std::set<network::IPv4Address> &exclude = {});
-    std::future<std::vector<network::IPv4Address>> find_new_peers(size_t count);
+    std::future<std::set<network::IPv4Address>> find_new_peers(size_t count);
 
     struct FindNewPeersContext
     {
-        std::vector<network::IPv4Address>               peers;
-        size_t                                          index = 0;
-        size_t                                          count;
-        std::vector<network::IPv4Address>               new_peers;
-        std::promise<std::vector<network::IPv4Address>> promise;
+        std::vector<network::IPv4Address>            peers;
+        size_t                                       index = 0;
+        size_t                                       count;
+        std::set<network::IPv4Address>               new_peers;
+        std::promise<std::set<network::IPv4Address>> promise;
     };
     void find_new_peers_loop(const std::shared_ptr<FindNewPeersContext> &ctx);
 
     const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
     const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;
+    const std::shared_ptr<DNLConfig>                        dnl_config_;
     const std::shared_ptr<utils::Executer>                  executer_;
     const std::shared_ptr<utils::Executer>                  io_executer_;
     utils::Random                                           rng_;
-    std::vector<network::IPv4Address>                       peers_;
-    const size_t                                            peers_limit_;
+    std::set<network::IPv4Address>                          peers_;
     std::mutex                                              mutex_;
 };
 }  // namespace sand::flows

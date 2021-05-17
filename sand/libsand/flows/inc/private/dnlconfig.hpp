@@ -2,6 +2,7 @@
 #define SAND_FLOWS_DNLCONFIG_HPP_
 
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "address.hpp"
@@ -18,15 +19,17 @@ public:
     explicit DNLConfig(std::unique_ptr<DNLConfigLoader> loader);
     ~DNLConfig();
 
-    void                               reload();
-    [[nodiscard]] network::IPv4Address random_pick();
-    void                               exclude(network::IPv4Address address);
-    [[nodiscard]] bool                 is_empty() const;
+    void                                            reload();
+    [[nodiscard]] std::vector<network::IPv4Address> get_all() const;
+    [[nodiscard]] network::IPv4Address              random_pick();
+    void                                            exclude(network::IPv4Address address);
+    [[nodiscard]] bool                              is_empty() const;
 
 private:
     std::vector<network::IPv4Address> pool_;
     std::unique_ptr<DNLConfigLoader>  loader_;
     utils::Random                     rng_;
+    mutable std::mutex                mutex_;
 };
 }  // namespace sand::flows
 

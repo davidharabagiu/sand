@@ -7,6 +7,7 @@
 
 #include <glog/logging.h>
 
+#include "dnlconfig.hpp"
 #include "executer.hpp"
 #include "inboundrequestdispatcher.hpp"
 #include "protocolmessagehandler.hpp"
@@ -15,13 +16,13 @@ namespace sand::flows
 {
 PeerManager::PeerManager(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
     std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
-    std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer,
-    size_t peers_limit)
+    std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
+    std::shared_ptr<utils::Executer> io_executer)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
+    , dnl_config_ {std::move(dnl_config)}
     , executer_ {std::move(executer)}
     , io_executer_ {std::move(io_executer)}
-    , peers_limit_ {peers_limit}
 {
     inbound_request_dispatcher_->set_callback<protocol::PullMessage>([this](auto &&p1, auto &&p2) {
         handle_pull(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));
@@ -138,15 +139,8 @@ void PeerManager::handle_push(network::IPv4Address from, const protocol::PushMes
 
         {
             std::lock_guard lock {mutex_};
-            if (peers_.size() < peers_limit_)
-            {
-                peers_.push_back(from);
-                reply->status_code = protocol::StatusCode::OK;
-            }
-            else
-            {
-                reply->status_code = protocol::StatusCode::PEER_LIMIT_REACHED;
-            }
+            peers_.insert(from);
+            reply->status_code = protocol::StatusCode::OK;
         }
 
         auto future = protocol_message_handler_->send_reply(from, std::move(reply));
@@ -195,8 +189,8 @@ std::future<void> PeerManager::ping_peers()
     auto future  = promise->get_future();
 
     std::unique_lock               lock {mutex_};
-    std::set<network::IPv4Address> peers(peers_.cbegin(), peers_.cend());
-    lock.release();
+    std::set<network::IPv4Address> peers = peers_;
+    lock.unlock();
 
     auto ping_futures = std::make_shared<std::vector<
         std::pair<network::IPv4Address, std::future<std::unique_ptr<protocol::BasicReply>>>>>();
@@ -225,9 +219,7 @@ std::future<void> PeerManager::ping_peers()
 
             {
                 std::lock_guard lock {mutex_};
-                peers_.clear();
-                peers_.resize(peers.size());
-                std::copy(peers.cbegin(), peers.cend(), peers_.begin());
+                peers_ = peers;
             }
 
             promise->set_value();
@@ -275,13 +267,24 @@ std::vector<network::IPv4Address> PeerManager::pick_peers(
     return std::vector<network::IPv4Address>(choice.cbegin(), choice.cend());
 }
 
-std::future<std::vector<network::IPv4Address>> PeerManager::find_new_peers(size_t count)
+std::future<std::set<network::IPv4Address>> PeerManager::find_new_peers(size_t count)
 {
-    auto ctx   = std::make_shared<FindNewPeersContext>();
-    ctx->peers = peers_;
-    ctx->count = count;
+    auto ctx       = std::make_shared<FindNewPeersContext>();
+    auto dnl_nodes = dnl_config_->get_all();
+
+    // Add current peers to PULL msg destinations
+    std::unique_lock lock {mutex_};
+    ctx->peers.reserve(peers_.size() + dnl_nodes.size());
+    std::copy(peers_.cbegin(), peers_.cend(), std::back_inserter(ctx->peers));
+    lock.unlock();
     rng_.shuffle(ctx->peers.begin(), ctx->peers.end());
 
+    // Add DNL nodes to PULL msg destinations
+    auto it_dnl_begin = ctx->peers.end();
+    std::copy(dnl_nodes.cbegin(), dnl_nodes.cend(), std::back_inserter(ctx->peers));
+    rng_.shuffle(it_dnl_begin, ctx->peers.end());
+
+    ctx->count = count;
     find_new_peers_loop(ctx);
 
     return ctx->promise.get_future();
@@ -297,40 +300,32 @@ void PeerManager::find_new_peers_loop(const std::shared_ptr<FindNewPeersContext>
 
     auto msg           = std::make_unique<protocol::PullMessage>();
     msg->request_id    = rng_.next<protocol::RequestId>();
-    msg->address_count = decltype(msg->address_count)(
-        std::min(ctx->count, size_t(std::numeric_limits<decltype(msg->address_count)>::max())));
-    auto reply_future = protocol_message_handler_->send(ctx->peers[ctx->index], std::move(msg));
+    msg->address_count = decltype(msg->address_count)(std::min(ctx->count - ctx->new_peers.size(),
+        size_t(std::numeric_limits<decltype(msg->address_count)>::max())));
+    auto reply_future  = protocol_message_handler_->send(ctx->peers[ctx->index], std::move(msg));
 
-    io_executer_->add_job([this, ctx,
-                              reply_future = std::make_shared<decltype(reply_future)>(
-                                  std::move(reply_future))] {
-        auto reply      = reply_future->get();
-        auto pull_reply = dynamic_cast<protocol::PullReply *>(reply.get());
-        if (pull_reply)
-        {
-            if (reply->status_code == protocol::StatusCode::UNREACHABLE)
-            {
-                executer_->add_job([this, ctx] {
-                    {
-                        std::lock_guard lock {mutex_};
-                        auto it = std::find(peers_.begin(), peers_.end(), ctx->peers[ctx->index]);
-                        if (it != peers_.end())
-                        {
-                            peers_.erase(it);
-                        }
-                    }
-
-                    ++ctx->index;
-                    find_new_peers_loop(ctx);
-                });
-            }
-            else if (reply->status_code == protocol::StatusCode::OK)
+    io_executer_->add_job(
+        [this, ctx,
+            reply_future = std::make_shared<decltype(reply_future)>(std::move(reply_future))] {
+            auto reply      = reply_future->get();
+            auto pull_reply = dynamic_cast<protocol::PullReply *>(reply.get());
+            if (pull_reply && pull_reply->status_code == protocol::StatusCode::OK)
             {
                 executer_->add_job([this, ctx, pull_reply = *pull_reply] {
                     auto ping_futures = std::make_shared<std::vector<std::pair<network::IPv4Address,
                         std::future<std::unique_ptr<protocol::BasicReply>>>>>();
                     for (auto addr : pull_reply.peers)
                     {
+                        bool address_already_present = false;
+                        {
+                            std::lock_guard lock {mutex_};
+                            address_already_present = peers_.count(addr) != 0;
+                        }
+                        if (address_already_present)
+                        {
+                            continue;
+                        }
+
                         auto ping        = std::make_unique<protocol::PingMessage>();
                         ping->request_id = rng_.next<protocol::RequestId>();
                         ping_futures->emplace_back(
@@ -343,9 +338,16 @@ void PeerManager::find_new_peers_loop(const std::shared_ptr<FindNewPeersContext>
                             auto reply = f.get();
                             if (reply->status_code == protocol::StatusCode::OK)
                             {
-                                ctx->new_peers.push_back(a);
+                                if (ctx->new_peers.size() >= ctx->count)
+                                {
+                                    break;
+                                }
+
                                 std::lock_guard lock {mutex_};
-                                peers_.push_back(a);
+                                if (peers_.insert(a).second)
+                                {
+                                    ctx->new_peers.insert(a);
+                                }
                             }
                         }
 
@@ -361,14 +363,21 @@ void PeerManager::find_new_peers_loop(const std::shared_ptr<FindNewPeersContext>
                     });
                 });
             }
-        }
-        else
-        {
-            LOG(WARNING) << "Cannot interpret reply as PullReply";
-        }
+            else
+            {
+                if (!pull_reply)
+                {
+                    LOG(WARNING) << "Cannot interpret reply as PullReply";
+                }
+                else
+                {
+                    LOG(INFO) << "Peer " << network::conversion::to_string(ctx->peers[ctx->index])
+                              << " did not respond to PULL";
+                }
 
-        ++ctx->index;
-        executer_->add_job([this, ctx] { find_new_peers_loop(ctx); });
-    });
+                ++ctx->index;
+                executer_->add_job([this, ctx] { find_new_peers_loop(ctx); });
+            }
+        });
 }
 }  // namespace sand::flows
