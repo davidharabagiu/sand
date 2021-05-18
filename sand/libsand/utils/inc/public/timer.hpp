@@ -7,10 +7,11 @@
 #include <future>
 #include <memory>
 
-#include "executer.hpp"
-
 namespace sand::utils
 {
+// Forward declarations
+class Executer;
+
 class Timer
 {
 public:
