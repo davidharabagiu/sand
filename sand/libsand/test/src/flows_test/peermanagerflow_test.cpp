@@ -40,8 +40,10 @@ protected:
 
     std::unique_ptr<PeerManagerFlowImpl> make_peer_manager()
     {
-        return std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
+        auto obj = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
             inbound_request_dispatcher_, dnl_config_, executer_, io_executer_);
+        obj->start();
+        return obj;
     }
 
     IPv4Address random_ip_address()

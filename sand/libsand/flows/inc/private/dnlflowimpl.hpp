@@ -8,6 +8,7 @@
 #include "address.hpp"
 #include "completiontoken.hpp"
 #include "dnlflow.hpp"
+#include "executer.hpp"
 #include "listenergroup.hpp"
 #include "messages.hpp"
 #include "random.hpp"
@@ -51,6 +52,7 @@ private:
     bool remove_node(network::IPv4Address addr);
     std::future<std::vector<network::IPv4Address>> pick_nodes(size_t count);
     void                                           stop_impl();
+    void add_job(const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
 
     struct PickNodesContext
     {
