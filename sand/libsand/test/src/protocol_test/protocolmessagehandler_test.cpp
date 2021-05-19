@@ -4,7 +4,7 @@
 #include <chrono>
 #include <thread>
 
-#include "mainexecuter.hpp"
+#include "iothreadpool.hpp"
 #include "protocolmessagehandlerimpl.hpp"
 #include "random.hpp"
 #include "testutils.hpp"
@@ -29,7 +29,7 @@ protected:
         tcp_server_  = std::make_shared<NiceMock<TCPServerMock>>();
         serializer_  = std::make_shared<NiceMock<MessageSerializerMock>>();
         listener_    = std::make_shared<NiceMock<ProtocolMessageListenerMock>>();
-        io_executer_ = std::make_shared<MainExecuter>();
+        io_executer_ = std::make_shared<IOThreadPool>();
     }
 
     std::shared_ptr<TCPSenderMock>               tcp_sender_;

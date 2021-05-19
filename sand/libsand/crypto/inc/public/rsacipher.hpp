@@ -41,11 +41,11 @@ public:
 
     [[nodiscard]] virtual std::future<bool>       generate_key_pair(ModulusSize modulus_size,
               PublicExponent public_exponent, Key &public_key, Key &private_key,
-              utils::Executer &executer) const                                             = 0;
+              utils::Executer &executer)                                             = 0;
     [[nodiscard]] virtual std::future<ByteVector> encrypt(const Key &public_key,
-        const ByteVector &plain_text, utils::Executer &executer, int job_count = 1) const  = 0;
+        const ByteVector &plain_text, utils::Executer &executer, int job_count = 1)  = 0;
     [[nodiscard]] virtual std::future<ByteVector> decrypt(const Key &private_key,
-        const ByteVector &cipher_text, utils::Executer &executer, int job_count = 1) const = 0;
+        const ByteVector &cipher_text, utils::Executer &executer, int job_count = 1) = 0;
 };
 }  // namespace sand::crypto
 

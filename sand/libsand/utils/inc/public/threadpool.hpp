@@ -7,6 +7,7 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "executer.hpp"
@@ -21,19 +22,19 @@ public:
     ThreadPool &operator=(const ThreadPool &) = delete;
 
     ~ThreadPool() override;
-    void add_job(Job &&job, Priority priority = default_priority) override;
+    CompletionToken add_job(Job &&job, Priority priority = default_priority) override;
 
     static size_t DefaultThreadCount();
 
 private:
     void ThreadRoutine();
 
-    std::vector<std::thread>            threads_;
-    std::map<Priority, std::queue<Job>> jobs_;
-    size_t                              jobs_count_;
-    std::mutex                          mutex_;
-    std::condition_variable             cv_empty_;
-    std::atomic_bool                    running_;
+    std::vector<std::thread>                                        threads_;
+    std::map<Priority, std::queue<std::pair<Job, CompletionToken>>> jobs_;
+    size_t                                                          jobs_count_;
+    std::mutex                                                      mutex_;
+    std::condition_variable                                         cv_empty_;
+    std::atomic_bool                                                running_;
 };
 }  // namespace sand::utils
 

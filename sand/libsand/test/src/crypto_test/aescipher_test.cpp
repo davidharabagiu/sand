@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "aescipherimpl.hpp"
-#include "mainexecuter.hpp"
 #include "testutils.hpp"
+#include "threadpool.hpp"
 
 using namespace ::testing;
 using namespace ::sand::crypto;
@@ -19,7 +19,7 @@ protected:
 
     void TestEncryptDecrypt(size_t data_size)
     {
-        MainExecuter          executer;
+        ThreadPool            executer;
         AESCipherImpl         aes;
         AESCipher::ByteVector key;
         AESCipher::ByteVector iv;

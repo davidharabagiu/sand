@@ -11,8 +11,8 @@ namespace sand::protocol
 class SecretDataInterpreterImpl : public SecretDataInterpreter
 {
 public:
-    SecretDataInterpreterImpl(std::shared_ptr<const crypto::RSACipher> rsa,
-        std::shared_ptr<utils::Executer>                               crypto_job_executer);
+    SecretDataInterpreterImpl(std::shared_ptr<crypto::RSACipher> rsa,
+        std::shared_ptr<utils::Executer>                         crypto_job_executer);
 
     [[nodiscard]] std::pair<OfferMessage::SecretData, bool> decrypt_offer_message(
         const std::vector<Byte> &     encrypted,
@@ -21,8 +21,8 @@ public:
         const crypto::RSACipher::Key &public_key) const override;
 
 private:
-    const std::shared_ptr<const crypto::RSACipher> rsa_;
-    const std::shared_ptr<utils::Executer>         crypto_job_executer_;
+    const std::shared_ptr<crypto::RSACipher> rsa_;
+    const std::shared_ptr<utils::Executer>   crypto_job_executer_;
 };
 }  // namespace sand::protocol
 

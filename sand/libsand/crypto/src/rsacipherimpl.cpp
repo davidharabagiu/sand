@@ -16,113 +16,136 @@
 
 namespace sand::crypto
 {
+RSACipherImpl::~RSACipherImpl()
+{
+    decltype(running_jobs_) runnings_jobs_copy;
+
+    {
+        std::lock_guard lock {mutex_};
+        runnings_jobs_copy = running_jobs_;
+    }
+
+    for (const auto &completion_token : runnings_jobs_copy)
+    {
+        completion_token.cancel();
+        completion_token.wait_for_completion();
+    }
+}
+
 std::future<bool> RSACipherImpl::generate_key_pair(ModulusSize modulus_size,
-    PublicExponent public_exponent, Key &public_key, Key &private_key,
-    utils::Executer &executer) const
+    PublicExponent public_exponent, Key &public_key, Key &private_key, utils::Executer &executer)
 {
     auto promise = std::make_shared<std::promise<bool>>();
 
-    executer.add_job([promise, modulus_size, public_exponent, &public_key, &private_key] {
-        bool ret = false;
-        DEFER(promise->set_value(ret));
+    {
+        std::lock_guard lock {mutex_};
+        running_jobs_.insert(
+            executer.add_job([this, promise, modulus_size, public_exponent, &public_key,
+                                 &private_key](const utils::CompletionToken &completion_token) {
+                bool ret = false;
+                DEFER(promise->set_value(ret));
 
-        BIGNUM *e = BN_new();
-        if (e == nullptr)
-        {
-            LOG(ERROR) << "BN_new failed";
-            ret = false;
-            return;
-        }
-        DEFER(BN_free(e));
+                BIGNUM *e = BN_new();
+                if (e == nullptr)
+                {
+                    LOG(ERROR) << "BN_new failed";
+                    ret = false;
+                    return;
+                }
+                DEFER(BN_free(e));
 
-        if (BN_set_word(e, static_cast<BN_ULONG>(public_exponent)) != 1)
-        {
-            LOG(ERROR) << "BN_set_word failed";
-            ret = false;
-            return;
-        }
+                if (BN_set_word(e, static_cast<BN_ULONG>(public_exponent)) != 1)
+                {
+                    LOG(ERROR) << "BN_set_word failed";
+                    ret = false;
+                    return;
+                }
 
-        RSA *r = RSA_new();
-        if (r == nullptr)
-        {
-            LOG(ERROR) << "RSA_new failed";
-            ret = false;
-            return;
-        }
-        DEFER(RSA_free(r));
+                RSA *r = RSA_new();
+                if (r == nullptr)
+                {
+                    LOG(ERROR) << "RSA_new failed";
+                    ret = false;
+                    return;
+                }
+                DEFER(RSA_free(r));
 
-        if (RSA_generate_key_ex(r, int(modulus_size), e, nullptr) != 1)
-        {
-            LOG(ERROR) << "RSA_generate_key_ex failed";
-            ret = false;
-            return;
-        }
+                if (RSA_generate_key_ex(r, int(modulus_size), e, nullptr) != 1)
+                {
+                    LOG(ERROR) << "RSA_generate_key_ex failed";
+                    ret = false;
+                    return;
+                }
 
-        BIO *pub = BIO_new(BIO_s_mem());
-        if (pub == nullptr)
-        {
-            LOG(ERROR) << "BIO_new failed";
-            ret = false;
-            return;
-        }
-        DEFER(BIO_vfree(pub));
+                BIO *pub = BIO_new(BIO_s_mem());
+                if (pub == nullptr)
+                {
+                    LOG(ERROR) << "BIO_new failed";
+                    ret = false;
+                    return;
+                }
+                DEFER(BIO_vfree(pub));
 
-        BIO *pri = BIO_new(BIO_s_mem());
-        if (pri == nullptr)
-        {
-            LOG(ERROR) << "BIO_new failed";
-            ret = false;
-            return;
-        }
-        DEFER(BIO_vfree(pri));
+                BIO *pri = BIO_new(BIO_s_mem());
+                if (pri == nullptr)
+                {
+                    LOG(ERROR) << "BIO_new failed";
+                    ret = false;
+                    return;
+                }
+                DEFER(BIO_vfree(pri));
 
-        if (PEM_write_bio_RSAPublicKey(pub, r) != 1)
-        {
-            LOG(ERROR) << "PEM_write_bio_RSAPublicKey failed";
-            ret = false;
-            return;
-        }
-        if (PEM_write_bio_RSAPrivateKey(pri, r, nullptr, nullptr, 0, nullptr, nullptr) != 1)
-        {
-            LOG(ERROR) << "PEM_write_bio_RSAPrivateKey failed";
-            ret = false;
-            return;
-        }
+                if (PEM_write_bio_RSAPublicKey(pub, r) != 1)
+                {
+                    LOG(ERROR) << "PEM_write_bio_RSAPublicKey failed";
+                    ret = false;
+                    return;
+                }
+                if (PEM_write_bio_RSAPrivateKey(pri, r, nullptr, nullptr, 0, nullptr, nullptr) != 1)
+                {
+                    LOG(ERROR) << "PEM_write_bio_RSAPrivateKey failed";
+                    ret = false;
+                    return;
+                }
 
-        int pub_len = BIO_pending(pub);
-        int pri_len = BIO_pending(pri);
+                int pub_len = BIO_pending(pub);
+                int pri_len = BIO_pending(pri);
 
-        public_key.resize(size_t(pub_len));
-        private_key.resize(size_t(pri_len));
+                public_key.resize(size_t(pub_len));
+                private_key.resize(size_t(pri_len));
 
-        if (BIO_read(pub, public_key.data(), pub_len) != pub_len)
-        {
-            LOG(ERROR) << "BIO_read failed";
-            ret = false;
-            return;
-        }
-        if (BIO_read(pri, private_key.data(), pri_len) != pri_len)
-        {
-            LOG(ERROR) << "BIO_read failed";
-            ret = false;
-            return;
-        }
+                if (BIO_read(pub, public_key.data(), pub_len) != pub_len)
+                {
+                    LOG(ERROR) << "BIO_read failed";
+                    ret = false;
+                    return;
+                }
+                if (BIO_read(pri, private_key.data(), pri_len) != pri_len)
+                {
+                    LOG(ERROR) << "BIO_read failed";
+                    ret = false;
+                    return;
+                }
 
-        ret = true;
-    });
+                ret = true;
+
+                std::lock_guard lock {mutex_};
+                running_jobs_.erase(completion_token);
+            }));
+    }
 
     return promise->get_future();
 }
 
-std::future<RSACipher::ByteVector> RSACipherImpl::encrypt(const Key &public_key,
-    const ByteVector &plain_text, utils::Executer &executer, int job_count) const
+std::future<RSACipher::ByteVector> RSACipherImpl::encrypt(
+    const Key &public_key, const ByteVector &plain_text, utils::Executer &executer, int job_count)
 {
     return start_operation(public_key, plain_text, executer, job_count, PEM_read_bio_RSAPublicKey,
         RSA_public_encrypt, true);
 }
 
-std::future<RSACipher::ByteVector> RSACipherImpl::decrypt(const Key &private_key,
-    const ByteVector &cipher_text, utils::Executer &executer, int job_count) const
+std::future<RSACipher::ByteVector> RSACipherImpl::decrypt(
+    const Key &private_key, const ByteVector &cipher_text, utils::Executer &executer, int job_count)
 {
     return start_operation(private_key, cipher_text, executer, job_count,
         PEM_read_bio_RSAPrivateKey, RSA_private_decrypt, false);
@@ -189,33 +212,43 @@ std::future<RSACipher::ByteVector> RSACipherImpl::start_operation(const Key &key
     {
         last_block = (i == job_count - 1) ? (block_count - 1) : (first_block + blocks_per_job - 1);
 
-        executer.add_job([operation, crypto_function, first_block, last_block, job_index = i] {
-            ByteVector partial_result;
+        {
+            std::lock_guard lock {mutex_};
+            running_jobs_.insert(executer.add_job(
+                [this, operation, crypto_function, first_block, last_block, job_index = i](
+                    const utils::CompletionToken &completion_token) {
+                    ByteVector partial_result;
 
-            for (size_t current_block = first_block; current_block <= last_block; ++current_block)
-            {
-                size_t block_index = current_block * operation->block_len;
-                size_t in_byte_cnt = std::min(
-                    operation->block_len, operation->bytes_to_process.size() - block_index);
-                ByteVector bytes(operation->key_len);
+                    for (size_t current_block = first_block; current_block <= last_block;
+                         ++current_block)
+                    {
+                        size_t block_index = current_block * operation->block_len;
+                        size_t in_byte_cnt = std::min(
+                            operation->block_len, operation->bytes_to_process.size() - block_index);
+                        ByteVector bytes(operation->key_len);
 
-                int crypto_function_ret =
-                    crypto_function(int(in_byte_cnt), &operation->bytes_to_process[block_index],
-                        &bytes[0], operation->rsa, RSA_PKCS1_PADDING);
-                if (crypto_function_ret == -1)
-                {
-                    operation->error();
-                    return;
-                }
+                        int crypto_function_ret = crypto_function(int(in_byte_cnt),
+                            &operation->bytes_to_process[block_index], &bytes[0], operation->rsa,
+                            RSA_PKCS1_PADDING);
+                        if (crypto_function_ret == -1)
+                        {
+                            operation->error();
+                            return;
+                        }
 
-                auto out_byte_cnt = size_t(crypto_function_ret);
-                bytes.resize(out_byte_cnt);
-                partial_result.reserve(partial_result.size() + out_byte_cnt);
-                std::copy(bytes.cbegin(), bytes.cend(), std::back_inserter(partial_result));
-            }
+                        auto out_byte_cnt = size_t(crypto_function_ret);
+                        bytes.resize(out_byte_cnt);
+                        partial_result.reserve(partial_result.size() + out_byte_cnt);
+                        std::copy(bytes.cbegin(), bytes.cend(), std::back_inserter(partial_result));
+                    }
 
-            operation->completion(job_index, std::move(partial_result));
-        });
+                    operation->completion(job_index, std::move(partial_result));
+
+                    std::lock_guard lock {mutex_};
+                    running_jobs_.erase(completion_token);
+                }));
+        }
+
         first_block = last_block + 1;
     }
 

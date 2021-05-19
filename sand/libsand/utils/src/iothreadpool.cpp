@@ -24,25 +24,27 @@ IOThreadPool::~IOThreadPool()
     }
 }
 
-void IOThreadPool::add_job(Job &&job, Executer::Priority /*priority*/)
+CompletionToken IOThreadPool::add_job(Job &&job, Executer::Priority /*priority*/)
 {
+    CompletionToken completion_token;
+
     {
         std::lock_guard<std::mutex> lock {mutex_};
         if (idle_thread_count_ == 0)
         {
             threads_.emplace_back(&IOThreadPool::ThreadRoutine, this);
         }
-        pending_jobs_.push(std::move(job));
+        pending_jobs_.emplace(std::move(job), completion_token);
     }
     cv_empty_.notify_one();
+
+    return completion_token;
 }
 
 void IOThreadPool::ThreadRoutine()
 {
     while (running_)
     {
-        Job job;
-
         std::unique_lock<std::mutex> lock {mutex_};
         bool                         is_idle = false;
         if (pending_jobs_.empty())
@@ -61,11 +63,17 @@ void IOThreadPool::ThreadRoutine()
             break;
         }
 
-        job = std::move(pending_jobs_.front());
+        auto [job, completion_token] = std::move(pending_jobs_.front());
         pending_jobs_.pop();
 
         lock.unlock();
-        job();
+
+        if (!completion_token.is_cancelled())
+        {
+            job(completion_token);
+        }
+
+        completion_token.complete();
     }
 }
 }  // namespace sand::utils

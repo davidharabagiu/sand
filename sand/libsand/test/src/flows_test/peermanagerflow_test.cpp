@@ -8,7 +8,7 @@
 #include "dnlconfig.hpp"
 #include "inboundrequestdispatcher.hpp"
 #include "iothreadpool.hpp"
-#include "peermanager.hpp"
+#include "peermanagerflowimpl.hpp"
 #include "random.hpp"
 #include "threadpool.hpp"
 
@@ -23,7 +23,7 @@ using namespace ::sand::utils;
 
 namespace
 {
-class PeerManagerTest : public Test
+class PeerManagerFlowTest : public Test
 {
 protected:
     void SetUp() override
@@ -38,10 +38,10 @@ protected:
         io_executer_ = std::make_shared<IOThreadPool>();
     }
 
-    std::unique_ptr<PeerManager> make_peer_manager()
+    std::unique_ptr<PeerManagerFlowImpl> make_peer_manager()
     {
-        return std::make_unique<PeerManager>(protocol_message_handler_, inbound_request_dispatcher_,
-            dnl_config_, executer_, io_executer_);
+        return std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
+            inbound_request_dispatcher_, dnl_config_, executer_, io_executer_);
     }
 
     IPv4Address random_ip_address()
@@ -98,7 +98,7 @@ protected:
 };
 }  // namespace
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_DNLConfigEmpty)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_DNLConfigEmpty)
 {
     const size_t requested_peer_count = 3;
 
@@ -112,7 +112,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_DNLConfigEmpty)
     EXPECT_TRUE(f.get().empty());
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_1DownDNLNode)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1DownDNLNode)
 {
     const size_t requested_peer_count = 3;
     const auto   dnla1                = random_ip_address();
@@ -129,7 +129,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_1DownDNLNode)
     EXPECT_TRUE(f.get().empty());
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_1DownDNLNode_1UpDNLNode)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1DownDNLNode_1UpDNLNode)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();
@@ -161,7 +161,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_1DownDNLNode_1UpDNLNode)
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_2UpDNLNodes_FirstReturnsAllRequestedPeers)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_2UpDNLNodes_FirstReturnsAllRequestedPeers)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();
@@ -192,7 +192,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_2UpDNLNodes_FirstReturnsAllRequestedPee
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_2UpDNLNodes_EachReturnsSomePeers)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_2UpDNLNodes_EachReturnsSomePeers)
 {
     const size_t requested_peer_count        = 10;
     const size_t peers_returned_by_first_dnl = 7;
@@ -229,7 +229,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_2UpDNLNodes_EachReturnsSomePeers)
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_1UpDNLNode_ReturnsMorePeersThanRequested)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1UpDNLNode_ReturnsMorePeersThanRequested)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();
@@ -261,7 +261,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_1UpDNLNode_ReturnsMorePeersThanRequeste
     ASSERT_THAT(got_peers, IsSubsetOf(peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_1UpDNLNode_SomePeersDead)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1UpDNLNode_SomePeersDead)
 {
     const size_t requested_peer_count = 10;
     const size_t dead_peers_count     = 3;
@@ -296,7 +296,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_1UpDNLNode_SomePeersDead)
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(alive_peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromDNL_2UpDNLNodes_SomePeersDead_UseSecondDNLAsBackup)
+TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_2UpDNLNodes_SomePeersDead_UseSecondDNLAsBackup)
 {
     const size_t requested_peer_count = 10;
     const size_t dead_peers_count     = 3;
@@ -347,7 +347,7 @@ TEST_F(PeerManagerTest, GetPeers_FromDNL_2UpDNLNodes_SomePeersDead_UseSecondDNLA
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(alive_peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromCache_AllAlive)
+TEST_F(PeerManagerFlowTest, GetPeers_FromCache_AllAlive)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();
@@ -382,7 +382,7 @@ TEST_F(PeerManagerTest, GetPeers_FromCache_AllAlive)
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromCache_SomePeersDied)
+TEST_F(PeerManagerFlowTest, GetPeers_FromCache_SomePeersDied)
 {
     const size_t requested_peer_count = 10;
     const size_t dead_peers_count     = 3;
@@ -431,7 +431,7 @@ TEST_F(PeerManagerTest, GetPeers_FromCache_SomePeersDied)
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(alive_peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromCache_SomePeersDied_ReplenishFromDNL)
+TEST_F(PeerManagerFlowTest, GetPeers_FromCache_SomePeersDied_ReplenishFromDNL)
 {
     const size_t requested_peer_count = 10;
     const size_t dead_peers_count     = 3;
@@ -485,7 +485,7 @@ TEST_F(PeerManagerTest, GetPeers_FromCache_SomePeersDied_ReplenishFromDNL)
     ASSERT_THAT(got_peers, IsSubsetOf(alive_peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromCache_SomePeersDied_ReplenishFromOtherPeers)
+TEST_F(PeerManagerFlowTest, GetPeers_FromCache_SomePeersDied_ReplenishFromOtherPeers)
 {
     const size_t requested_peer_count = 10;
     const size_t dead_peers_count     = 3;
@@ -559,7 +559,7 @@ TEST_F(PeerManagerTest, GetPeers_FromCache_SomePeersDied_ReplenishFromOtherPeers
     ASSERT_THAT(got_peers, IsSubsetOf(alive_peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromCache_WantMore_ReplenishFromDNL)
+TEST_F(PeerManagerFlowTest, GetPeers_FromCache_WantMore_ReplenishFromDNL)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();
@@ -606,7 +606,7 @@ TEST_F(PeerManagerTest, GetPeers_FromCache_WantMore_ReplenishFromDNL)
     ASSERT_THAT(got_peers, IsSubsetOf(peers));
 }
 
-TEST_F(PeerManagerTest, GetPeers_FromCache_WantMore_ReplenishFromOtherPeers)
+TEST_F(PeerManagerFlowTest, GetPeers_FromCache_WantMore_ReplenishFromOtherPeers)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();

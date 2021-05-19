@@ -4,6 +4,7 @@
 
 #include <glog/logging.h>
 
+#include "defer.hpp"
 #include "messageserializer.hpp"
 #include "protocolmessagelistener.hpp"
 #include "tcpsender.hpp"
@@ -57,6 +58,22 @@ ProtocolMessageHandlerImpl::ProtocolMessageHandlerImpl(
 {
 }
 
+ProtocolMessageHandlerImpl::~ProtocolMessageHandlerImpl()
+{
+    decltype(running_jobs_) runnings_jobs_copy;
+
+    {
+        std::lock_guard lock {mutex_};
+        runnings_jobs_copy = running_jobs_;
+    }
+
+    for (const auto &completion_token : runnings_jobs_copy)
+    {
+        completion_token.cancel();
+        completion_token.wait_for_completion();
+    }
+}
+
 void ProtocolMessageHandlerImpl::initialize()
 {
     tcp_server_->register_listener(shared_from_this());
@@ -103,29 +120,46 @@ std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
         tcp_sender_->send(to, port_, bytes.data(), bytes.size()));
 
     std::shared_ptr<Message> shared_message {std::move(message)};
-    io_executer_->add_job([this, send_result_future, message = shared_message, reply_promise, to] {
-        bool success = send_result_future->get();
 
-        std::lock_guard<std::mutex> _lock {mutex_};
-        outgoing_request_ids_.erase(message->request_id);
+    {
+        std::lock_guard lock {mutex_};
+        running_jobs_.insert(io_executer_->add_job(
+            [this, send_result_future, message = shared_message, reply_promise, to](
+                const utils::CompletionToken &completion_token) {
+                DEFER({
+                    std::lock_guard lock {mutex_};
+                    running_jobs_.erase(completion_token);
+                });
 
-        if (message->message_code == MessageCode::BYE)
-        {
-            reply_promise->set_value(nullptr);
-        }
-        else if (success)
-        {
-            pending_replies_.emplace(
-                message->request_id, PendingReply {reply_promise, message->message_code, to});
-        }
-        else
-        {
-            auto reply         = std::make_unique<BasicReply>(message->message_code);
-            reply->request_id  = message->request_id;
-            reply->status_code = StatusCode::UNREACHABLE;
-            reply_promise->set_value(std::move(reply));
-        }
-    });
+                bool success = send_result_future->get();
+
+                if (completion_token.is_cancelled())
+                {
+                    reply_promise->set_value(nullptr);
+                    return;
+                }
+
+                std::lock_guard<std::mutex> _lock {mutex_};
+                outgoing_request_ids_.erase(message->request_id);
+
+                if (message->message_code == MessageCode::BYE)
+                {
+                    reply_promise->set_value(nullptr);
+                }
+                else if (success)
+                {
+                    pending_replies_.emplace(message->request_id,
+                        PendingReply {reply_promise, message->message_code, to});
+                }
+                else
+                {
+                    auto reply         = std::make_unique<BasicReply>(message->message_code);
+                    reply->request_id  = message->request_id;
+                    reply->status_code = StatusCode::UNREACHABLE;
+                    reply_promise->set_value(std::move(reply));
+                }
+            }));
+    }
 
     return reply_future;
 }

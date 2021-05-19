@@ -25,7 +25,7 @@ void DNLConfig::reload()
 network::IPv4Address DNLConfig::random_pick()
 {
     std::lock_guard lock {mutex_};
-    if (is_empty())
+    if (pool_.empty())
     {
         return network::conversion::to_ipv4_address("0.0.0.0");
     }

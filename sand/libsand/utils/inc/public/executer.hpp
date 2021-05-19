@@ -3,16 +3,18 @@
 
 #include <functional>
 
+#include "completiontoken.hpp"
+
 namespace sand::utils
 {
 class Executer
 {
 public:
-    using Job      = std::function<void()>;
+    using Job      = std::function<void(const CompletionToken &)>;
     using Priority = int;
 
-    virtual ~Executer()                                                   = default;
-    virtual void add_job(Job &&job, Priority priority = default_priority) = 0;
+    virtual ~Executer()                                                              = default;
+    virtual CompletionToken add_job(Job &&job, Priority priority = default_priority) = 0;
 
     static constexpr Priority default_priority = 0;
 };

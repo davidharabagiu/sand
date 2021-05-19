@@ -1,11 +1,12 @@
-#ifndef SAND_FLOWS_PEERMANAGER_HPP_
-#define SAND_FLOWS_PEERMANAGER_HPP_
+#ifndef SAND_FLOWS_PEERMANAGERIMPL_HPP_
+#define SAND_FLOWS_PEERMANAGERIMPL_HPP_
 
 #include <memory>
 #include <mutex>
 #include <set>
 #include <vector>
 
+#include "completiontoken.hpp"
 #include "messages.hpp"
 #include "peeraddressprovider.hpp"
 #include "random.hpp"
@@ -28,14 +29,14 @@ namespace sand::flows
 class InboundRequestDispatcher;
 class DNLConfig;
 
-class PeerManager : public PeerAddressProvider
+class PeerManagerFlowImpl : public PeerAddressProvider
 {
 public:
-    PeerManager(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
-        std::shared_ptr<InboundRequestDispatcher>                 inbound_request_dispatcher,
+    PeerManagerFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
+        std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
         std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
         std::shared_ptr<utils::Executer> io_executer);
-    ~PeerManager() override;
+    ~PeerManagerFlowImpl() override;
 
     std::future<std::vector<network::IPv4Address>> get_peers(int count) override;
     void                                           remove_peer(network::IPv4Address addr) override;
@@ -68,8 +69,9 @@ private:
     const std::shared_ptr<utils::Executer>                  io_executer_;
     utils::Random                                           rng_;
     std::set<network::IPv4Address>                          peers_;
+    std::set<utils::CompletionToken>                        running_jobs_;
     std::mutex                                              mutex_;
 };
 }  // namespace sand::flows
 
-#endif  // SAND_FLOWS_PEERMANAGER_HPP_
+#endif  // SAND_FLOWS_PEERMANAGERIMPL_HPP_

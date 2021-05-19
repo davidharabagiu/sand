@@ -1,11 +1,12 @@
 #ifndef SAND_UTILS_TIMER_HPP_
 #define SAND_UTILS_TIMER_HPP_
 
-#include <atomic>
 #include <chrono>
 #include <functional>
-#include <future>
 #include <memory>
+#include <optional>
+
+#include "completiontoken.hpp"
 
 namespace sand::utils
 {
@@ -27,9 +28,8 @@ public:
 
 private:
     const std::shared_ptr<Executer> executer_;
-    std::atomic_bool                running_;
     TimePoint                       next_trigger_moment_;
-    std::future<void>               job_finished_;
+    std::optional<CompletionToken>  completion_token_;
 };
 }  // namespace sand::utils
 

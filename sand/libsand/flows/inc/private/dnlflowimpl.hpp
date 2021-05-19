@@ -1,9 +1,12 @@
+#include <atomic>
 #include <future>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
 #include "address.hpp"
+#include "completiontoken.hpp"
 #include "dnlflow.hpp"
 #include "listenergroup.hpp"
 #include "messages.hpp"
@@ -33,6 +36,8 @@ public:
 
     bool register_listener(std::shared_ptr<DNLFlowListener> listener) override;
     bool unregister_listener(std::shared_ptr<DNLFlowListener> listener) override;
+    void start() override;
+    void stop() override;
 
 private:
     void handle_pull(network::IPv4Address from, const protocol::PullMessage &msg);
@@ -45,6 +50,7 @@ private:
     bool add_node(network::IPv4Address addr);
     bool remove_node(network::IPv4Address addr);
     std::future<std::vector<network::IPv4Address>> pick_nodes(size_t count);
+    void                                           stop_impl();
 
     struct PickNodesContext
     {
@@ -70,5 +76,8 @@ private:
     utils::ListenerGroup<DNLFlowListener>                   listener_group_;
     utils::Random                                           rng_;
     std::mutex                                              mutex_;
+    std::atomic_bool                                        started_;
+    std::set<utils::CompletionToken>                        running_jobs_;
+    int                                                     sync_period_ms_;
 };
 }  // namespace sand::flows

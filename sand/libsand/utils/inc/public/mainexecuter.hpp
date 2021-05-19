@@ -8,7 +8,7 @@ namespace sand::utils
 class MainExecuter : public Executer
 {
 public:
-    void add_job(Job &&job, Priority priority = default_priority) override;
+    CompletionToken add_job(Job &&job, Priority priority = default_priority) override;
 };
 }  // namespace sand::utils
 

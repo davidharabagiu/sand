@@ -4,8 +4,8 @@
 
 namespace sand::protocol
 {
-SecretDataInterpreterImpl::SecretDataInterpreterImpl(std::shared_ptr<const crypto::RSACipher> rsa,
-    std::shared_ptr<utils::Executer> crypto_job_executer)
+SecretDataInterpreterImpl::SecretDataInterpreterImpl(
+    std::shared_ptr<crypto::RSACipher> rsa, std::shared_ptr<utils::Executer> crypto_job_executer)
     : rsa_ {std::move(rsa)}
     , crypto_job_executer_ {std::move(crypto_job_executer)}
 {

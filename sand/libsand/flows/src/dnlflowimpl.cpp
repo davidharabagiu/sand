@@ -6,6 +6,7 @@
 
 #include <glog/logging.h>
 
+#include "defer.hpp"
 #include "dnlconfig.hpp"
 #include "dnlflowlistener.hpp"
 #include "executer.hpp"
@@ -24,6 +25,8 @@ DNLFlowImpl::DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> proto
     , executer_ {std::move(executer)}
     , io_executer_ {std::move(io_executer)}
     , sync_timer_ {io_executer_}
+    , started_ {false}
+    , sync_period_ms_ {sync_period_ms}
 {
     inbound_request_dispatcher_->set_callback<protocol::PullMessage>([this](auto &&p1, auto &&p2) {
         handle_pull(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));
@@ -41,9 +44,6 @@ DNLFlowImpl::DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> proto
         [this](auto &&p1, auto &&p2) {
             handle_dnl_sync(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));
         });
-
-    sync_timer_.start(
-        std::chrono::milliseconds {sync_period_ms}, [this] { handle_sync_timer_event(); }, false);
 }
 
 DNLFlowImpl::~DNLFlowImpl()
@@ -53,7 +53,7 @@ DNLFlowImpl::~DNLFlowImpl()
     inbound_request_dispatcher_->unset_callback<protocol::ByeMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::PingMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::DNLSyncMessage>();
-    sync_timer_.stop();
+    stop_impl();
 }
 
 bool DNLFlowImpl::register_listener(std::shared_ptr<DNLFlowListener> listener)
@@ -66,148 +66,278 @@ bool DNLFlowImpl::unregister_listener(std::shared_ptr<DNLFlowListener> listener)
     return listener_group_.remove(listener);
 }
 
+void DNLFlowImpl::start()
+{
+    if (!started_)
+    {
+        started_ = true;
+        sync_timer_.start(
+            std::chrono::milliseconds {sync_period_ms_}, [this] { handle_sync_timer_event(); },
+            false);
+    }
+}
+
+void DNLFlowImpl::stop()
+{
+    stop_impl();
+}
+
+void DNLFlowImpl::stop_impl()
+{
+    if (started_)
+    {
+        sync_timer_.stop();
+        started_ = false;
+
+        decltype(running_jobs_) runnings_jobs_copy;
+
+        {
+            std::lock_guard lock {mutex_};
+            runnings_jobs_copy = running_jobs_;
+        }
+
+        for (const auto &completion_token : runnings_jobs_copy)
+        {
+            completion_token.cancel();
+            completion_token.wait_for_completion();
+        }
+    }
+}
+
 void DNLFlowImpl::handle_pull(network::IPv4Address from, const protocol::PullMessage &msg)
 {
-    executer_->add_job([this, from, msg] {
+    if (!started_)
+    {
+        LOG(INFO) << "DNLFlow not started. PULL message ignored.";
+        return;
+    }
+
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(executer_->add_job([this, from, msg](
+                                                const utils::CompletionToken &completion_token) {
+        DEFER({
+            std::lock_guard lock {mutex_};
+            running_jobs_.erase(completion_token);
+        });
+
         auto future = pick_nodes(msg.address_count);
         auto msg_id = msg.request_id;
-        io_executer_->add_job(
-            [this, from, msg_id, future = std::make_shared<decltype(future)>(std::move(future))] {
-                future->wait();
-                executer_->add_job([this, from, msg_id, future] {
-                    auto reply         = std::make_unique<protocol::PullReply>();
-                    reply->request_id  = msg_id;
-                    reply->status_code = protocol::StatusCode::OK;
-                    reply->peers       = future->get();
-                    if (reply->peers.empty())
-                    {
-                        reply->status_code = protocol::StatusCode::RESOURCE_NOT_AVAILABLE;
-                    }
-                    else
-                    {
-                        reply->status_code = protocol::StatusCode::OK;
-                    }
 
-                    auto send_reply_future =
-                        protocol_message_handler_->send_reply(from, std::move(reply));
-                    wait_for_reply_confirmation(std::move(send_reply_future), msg_id);
+        std::unique_lock lock {mutex_};
+        running_jobs_.insert(io_executer_->add_job(
+            [this, from, msg_id, future = std::make_shared<decltype(future)>(std::move(future))](
+                const utils::CompletionToken &completion_token) {
+                DEFER({
+                    std::lock_guard lock {mutex_};
+                    running_jobs_.erase(completion_token);
                 });
-            });
-    });
+
+                future->wait();
+                if (completion_token.is_cancelled())
+                {
+                    return;
+                }
+
+                std::unique_lock lock {mutex_};
+                running_jobs_.insert(executer_->add_job(
+                    [this, from, msg_id, future](const utils::CompletionToken &completion_token) {
+                        auto reply         = std::make_unique<protocol::PullReply>();
+                        reply->request_id  = msg_id;
+                        reply->status_code = protocol::StatusCode::OK;
+                        reply->peers       = future->get();
+                        if (reply->peers.empty())
+                        {
+                            reply->status_code = protocol::StatusCode::RESOURCE_NOT_AVAILABLE;
+                        }
+                        else
+                        {
+                            reply->status_code = protocol::StatusCode::OK;
+                        }
+
+                        auto send_reply_future =
+                            protocol_message_handler_->send_reply(from, std::move(reply));
+                        wait_for_reply_confirmation(std::move(send_reply_future), msg_id);
+
+                        std::lock_guard lock {mutex_};
+                        running_jobs_.erase(completion_token);
+                    }));
+                lock.unlock();
+            }));
+        lock.unlock();
+    }));
 }
 
 void DNLFlowImpl::handle_push(network::IPv4Address from, const protocol::PushMessage &msg)
 {
-    executer_->add_job([this, from, msg] {
-        {
+    if (!started_)
+    {
+        LOG(INFO) << "DNLFlow not started. PUSH message ignored.";
+        return;
+    }
+
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(
+        executer_->add_job([this, from, msg](const utils::CompletionToken &completion_token) {
+            {
+                std::lock_guard lock {mutex_};
+                add_node(from);
+            }
+
+            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+            reply->request_id  = msg.request_id;
+            reply->status_code = protocol::StatusCode::OK;
+            auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
+            wait_for_reply_confirmation(std::move(future), msg.request_id);
+
             std::lock_guard lock {mutex_};
-            add_node(from);
-        }
-        auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-        reply->request_id  = msg.request_id;
-        reply->status_code = protocol::StatusCode::OK;
-        auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
-        wait_for_reply_confirmation(std::move(future), msg.request_id);
-    });
+            running_jobs_.erase(completion_token);
+        }));
 }
 
 void DNLFlowImpl::handle_ping(network::IPv4Address from, const protocol::PingMessage &msg)
 {
-    executer_->add_job([this, from, msg] {
-        auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-        reply->request_id  = msg.request_id;
-        reply->status_code = protocol::StatusCode::OK;
-        auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
-        wait_for_reply_confirmation(std::move(future), msg.request_id);
-    });
+    if (!started_)
+    {
+        LOG(INFO) << "DNLFlow not started. PING message ignored.";
+        return;
+    }
+
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(
+        executer_->add_job([this, from, msg](const utils::CompletionToken &completion_token) {
+            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+            reply->request_id  = msg.request_id;
+            reply->status_code = protocol::StatusCode::OK;
+            auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
+            wait_for_reply_confirmation(std::move(future), msg.request_id);
+
+            std::lock_guard lock {mutex_};
+            running_jobs_.erase(completion_token);
+        }));
 }
 
 void DNLFlowImpl::handle_bye(network::IPv4Address from, const protocol::ByeMessage & /*msg*/)
 {
-    executer_->add_job([this, from] {
-        std::lock_guard lock {mutex_};
-        remove_node(from);
-    });
+    if (!started_)
+    {
+        LOG(INFO) << "DNLFlow not started. BYE message ignored.";
+        return;
+    }
+
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(
+        executer_->add_job([this, from](const utils::CompletionToken &completion_token) {
+            std::lock_guard lock {mutex_};
+            remove_node(from);
+            running_jobs_.erase(completion_token);
+        }));
 }
 
 void DNLFlowImpl::handle_dnl_sync(network::IPv4Address from, const protocol::DNLSyncMessage &msg)
 {
-    executer_->add_job([this, from, msg] {
-        {
-            std::lock_guard                lock {mutex_};
-            std::vector<Event>             inversed_merged_events;
-            std::set<network::IPv4Address> marked_nodes;
+    if (!started_)
+    {
+        LOG(INFO) << "DNLFlow not started. DNLSYNC message ignored.";
+        return;
+    }
 
-            for (size_t i = msg.entries.size() - 1, j = most_recent_events_.size() - 1,
-                        index_limit = static_cast<size_t>(-1);
-                 i != index_limit || j != index_limit;)
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(
+        executer_->add_job([this, from, msg](const utils::CompletionToken &completion_token) {
             {
-                const Event *evt;
+                std::lock_guard                lock {mutex_};
+                std::vector<Event>             inversed_merged_events;
+                std::set<network::IPv4Address> marked_nodes;
 
-                if (i == index_limit)
+                for (size_t i = msg.entries.size() - 1, j = most_recent_events_.size() - 1,
+                            index_limit = static_cast<size_t>(-1);
+                     i != index_limit || j != index_limit;)
                 {
-                    evt = &most_recent_events_[j--];
-                }
-                else if (j == index_limit)
-                {
-                    evt = &msg.entries[i--];
-                }
-                else if (msg.entries[i].timestamp > most_recent_events_[j].timestamp)
-                {
-                    evt = &msg.entries[i--];
-                }
-                else
-                {
-                    evt = &most_recent_events_[j--];
+                    const Event *evt;
+
+                    if (i == index_limit)
+                    {
+                        evt = &most_recent_events_[j--];
+                    }
+                    else if (j == index_limit)
+                    {
+                        evt = &msg.entries[i--];
+                    }
+                    else if (msg.entries[i].timestamp > most_recent_events_[j].timestamp)
+                    {
+                        evt = &msg.entries[i--];
+                    }
+                    else
+                    {
+                        evt = &most_recent_events_[j--];
+                    }
+
+                    if (!marked_nodes.insert(evt->address).second)
+                    {
+                        continue;
+                    }
+                    inversed_merged_events.push_back(*evt);
                 }
 
-                if (!marked_nodes.insert(evt->address).second)
+                most_recent_events_.resize(inversed_merged_events.size());
+                std::copy(inversed_merged_events.crbegin(), inversed_merged_events.crend(),
+                    most_recent_events_.begin());
+
+                for (const auto &evt : most_recent_events_)
                 {
-                    continue;
+                    if (evt.action == Event::ADD_ADDRESS)
+                    {
+                        add_node(evt.address);
+                    }
+                    else if (evt.action == Event::REMOVE_ADDRESS)
+                    {
+                        remove_node(evt.address);
+                    }
                 }
-                inversed_merged_events.push_back(*evt);
             }
 
-            most_recent_events_.resize(inversed_merged_events.size());
-            std::copy(inversed_merged_events.crbegin(), inversed_merged_events.crend(),
-                most_recent_events_.begin());
+            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+            reply->request_id  = msg.request_id;
+            reply->status_code = protocol::StatusCode::OK;
+            auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
+            wait_for_reply_confirmation(std::move(future), msg.request_id);
 
-            for (const auto &evt : most_recent_events_)
-            {
-                if (evt.action == Event::ADD_ADDRESS)
-                {
-                    add_node(evt.address);
-                }
-                else if (evt.action == Event::REMOVE_ADDRESS)
-                {
-                    remove_node(evt.address);
-                }
-            }
-        }
-
-        auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-        reply->request_id  = msg.request_id;
-        reply->status_code = protocol::StatusCode::OK;
-        auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
-        wait_for_reply_confirmation(std::move(future), msg.request_id);
-    });
+            std::lock_guard lock {mutex_};
+            running_jobs_.erase(completion_token);
+        }));
 }
 
 void DNLFlowImpl::wait_for_reply_confirmation(std::future<bool> future, protocol::RequestId msg_id)
 {
-    auto shared_future = std::make_shared<decltype(future)>(std::move(future));
-    io_executer_->add_job([shared_future, msg_id] {
-        bool success = shared_future->get();
-        if (!success)
-        {
-            LOG(WARNING) << "Cannot send reply to message " << msg_id;
-        }
-    });
+    auto            shared_future = std::make_shared<decltype(future)>(std::move(future));
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(io_executer_->add_job(
+        [this, shared_future, msg_id](const utils::CompletionToken &completion_token) {
+            bool success = shared_future->get();
+            if (!success)
+            {
+                LOG(WARNING) << "Cannot send reply to message " << msg_id;
+            }
+            std::lock_guard lock {mutex_};
+            running_jobs_.erase(completion_token);
+        }));
 }
 
 void DNLFlowImpl::handle_sync_timer_event()
 {
-    executer_->add_job([this] {
+    if (!started_)
+    {
+        LOG(INFO) << "DNLFlow not started. Timer event ignored.";
+        return;
+    }
+
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(executer_->add_job([this](const utils::CompletionToken &completion_token) {
+        DEFER({
+            std::lock_guard lock {mutex_};
+            running_jobs_.erase(completion_token);
+        });
+
         auto msg        = std::make_unique<protocol::DNLSyncMessage>();
         msg->request_id = rng_.next<protocol::RequestId>();
         {
@@ -226,18 +356,31 @@ void DNLFlowImpl::handle_sync_timer_event()
                           addr, std::make_unique<protocol::DNLSyncMessage>(*msg)));
         }
 
-        io_executer_->add_job([reply_futures] {
-            for (auto &[a, f] : *reply_futures)
-            {
-                auto reply = f.get();
-                if (reply->status_code != protocol::StatusCode::OK)
+        std::unique_lock lock {mutex_};
+        running_jobs_.insert(io_executer_->add_job(
+            [this, reply_futures](const utils::CompletionToken &completion_token) {
+                DEFER({
+                    std::lock_guard lock {mutex_};
+                    running_jobs_.erase(completion_token);
+                });
+
+                for (auto &[a, f] : *reply_futures)
                 {
-                    LOG(INFO) << "DNL node " << network::conversion::to_string(a)
-                              << " does not respond";
+                    auto reply = f.get();
+                    if (completion_token.is_cancelled())
+                    {
+                        return;
+                    }
+
+                    if (reply->status_code != protocol::StatusCode::OK)
+                    {
+                        LOG(INFO) << "DNL node " << network::conversion::to_string(a)
+                                  << " does not respond";
+                    }
                 }
-            }
-        });
-    });
+            }));
+        lock.unlock();
+    }));
 }
 
 bool DNLFlowImpl::add_node(network::IPv4Address addr)
@@ -319,24 +462,43 @@ void DNLFlowImpl::pick_nodes_loop(const std::shared_ptr<PickNodesContext> &ctx)
         ping_futures->emplace_back(addr, protocol_message_handler_->send(addr, std::move(ping)));
     }
 
-    io_executer_->add_job([this, ctx, ping_futures] {
-        for (auto &[a, f] : *ping_futures)
-        {
-            auto reply = f.get();
-            if (reply->status_code == protocol::StatusCode::OK)
-            {
-                ctx->result.push_back(a);
-            }
-        }
+    std::lock_guard lock {mutex_};
+    running_jobs_.insert(io_executer_->add_job(
+        [this, ctx, ping_futures](const utils::CompletionToken &completion_token) {
+            DEFER({
+                std::lock_guard lock {mutex_};
+                running_jobs_.erase(completion_token);
+            });
 
-        if (ctx->result.size() < ctx->count)
-        {
-            executer_->add_job([this, ctx] { pick_nodes_loop(ctx); });
-        }
-        else
-        {
-            ctx->promise.set_value(ctx->result);
-        }
-    });
+            for (auto &[a, f] : *ping_futures)
+            {
+                auto reply = f.get();
+                if (completion_token.is_cancelled())
+                {
+                    ctx->promise.set_value({});
+                    return;
+                }
+
+                if (reply->status_code == protocol::StatusCode::OK)
+                {
+                    ctx->result.push_back(a);
+                }
+            }
+
+            if (ctx->result.size() < ctx->count)
+            {
+                std::lock_guard lock {mutex_};
+                running_jobs_.insert(
+                    executer_->add_job([this, ctx](const utils::CompletionToken &completion_token) {
+                        pick_nodes_loop(ctx);
+                        std::lock_guard lock {mutex_};
+                        running_jobs_.erase(completion_token);
+                    }));
+            }
+            else
+            {
+                ctx->promise.set_value(ctx->result);
+            }
+        }));
 }
 }  // namespace sand::flows

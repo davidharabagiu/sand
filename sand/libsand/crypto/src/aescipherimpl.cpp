@@ -51,7 +51,7 @@ bool AESCipherImpl::generate_key_and_iv(sand::crypto::AESCipher::KeySize key_siz
 
 std::future<AESCipherImpl::ByteVector> AESCipherImpl::encrypt(ModeOfOperation mode_of_operation,
     const ByteVector &key, const ByteVector &iv, const ByteVector &plain_text,
-    utils::Executer &executer) const
+    utils::Executer &executer)
 {
     auto promise = std::make_shared<std::promise<ByteVector>>();
     auto future  = promise->get_future();
@@ -64,7 +64,10 @@ std::future<AESCipherImpl::ByteVector> AESCipherImpl::encrypt(ModeOfOperation mo
         return future;
     }
 
-    executer.add_job([promise, cipher, key, iv, plain_text] {
+    std::lock_guard lock {mutex_};
+
+    running_jobs_.insert(executer.add_job([this, promise, cipher, key, iv, plain_text](
+                                              const utils::CompletionToken &completion_token) {
         constexpr size_t aes_block_size = 16;
 
         auto ctx = EVP_CIPHER_CTX_new();
@@ -104,14 +107,17 @@ std::future<AESCipherImpl::ByteVector> AESCipherImpl::encrypt(ModeOfOperation mo
 
         cipher_text.resize(size_t(encrypt_len + final_len));
         promise->set_value(std::move(cipher_text));
-    });
+
+        std::lock_guard lock {mutex_};
+        running_jobs_.erase(completion_token);
+    }));
 
     return future;
 }
 
 std::future<AESCipherImpl::ByteVector> AESCipherImpl::decrypt(ModeOfOperation mode_of_operation,
     const ByteVector &key, const ByteVector &iv, const ByteVector &cipher_text,
-    utils::Executer &executer) const
+    utils::Executer &executer)
 {
     auto promise = std::make_shared<std::promise<ByteVector>>();
     auto future  = promise->get_future();
@@ -124,43 +130,50 @@ std::future<AESCipherImpl::ByteVector> AESCipherImpl::decrypt(ModeOfOperation mo
         return future;
     }
 
-    executer.add_job([promise, cipher, key, iv, cipher_text] {
-        auto ctx = EVP_CIPHER_CTX_new();
-        if (ctx == nullptr)
-        {
-            LOG(ERROR) << "EVP_CIPHER_CTX_new failed";
-            promise->set_value({});
-            return;
-        }
-        DEFER(EVP_CIPHER_CTX_free(ctx));
+    {
+        std::lock_guard lock {mutex_};
+        running_jobs_.insert(executer.add_job([this, promise, cipher, key, iv, cipher_text](
+                                                  const utils::CompletionToken &completion_token) {
+            auto ctx = EVP_CIPHER_CTX_new();
+            if (ctx == nullptr)
+            {
+                LOG(ERROR) << "EVP_CIPHER_CTX_new failed";
+                promise->set_value({});
+                return;
+            }
+            DEFER(EVP_CIPHER_CTX_free(ctx));
 
-        if (EVP_DecryptInit_ex(ctx, cipher, nullptr, key.data(), iv.data()) != 1)
-        {
-            LOG(ERROR) << "EVP_DecryptInit_ex failed";
-            promise->set_value({});
-            return;
-        }
+            if (EVP_DecryptInit_ex(ctx, cipher, nullptr, key.data(), iv.data()) != 1)
+            {
+                LOG(ERROR) << "EVP_DecryptInit_ex failed";
+                promise->set_value({});
+                return;
+            }
 
-        ByteVector plain_text(cipher_text.size());
+            ByteVector plain_text(cipher_text.size());
 
-        int decrypt_len;
-        if (EVP_DecryptUpdate(
-                ctx, &plain_text[0], &decrypt_len, &cipher_text[0], int(cipher_text.size())) != 1)
-        {
-            LOG(ERROR) << "EVP_DecryptUpdate failed";
-            promise->set_value({});
-            return;
-        }
+            int decrypt_len;
+            if (EVP_DecryptUpdate(ctx, &plain_text[0], &decrypt_len, &cipher_text[0],
+                    int(cipher_text.size())) != 1)
+            {
+                LOG(ERROR) << "EVP_DecryptUpdate failed";
+                promise->set_value({});
+                return;
+            }
 
-        int final_len;
-        if (EVP_DecryptFinal_ex(ctx, &plain_text[size_t(decrypt_len)], &final_len) != 1)
-        {
-            final_len = 0;
-        }
+            int final_len;
+            if (EVP_DecryptFinal_ex(ctx, &plain_text[size_t(decrypt_len)], &final_len) != 1)
+            {
+                final_len = 0;
+            }
 
-        plain_text.resize(size_t(decrypt_len + final_len));
-        promise->set_value(std::move(plain_text));
-    });
+            plain_text.resize(size_t(decrypt_len + final_len));
+            promise->set_value(std::move(plain_text));
+
+            std::lock_guard lock {mutex_};
+            running_jobs_.erase(completion_token);
+        }));
+    }
 
     return future;
 }
@@ -180,6 +193,22 @@ const EVP_CIPHER *AESCipherImpl::get_cipher(KeySize key_size, ModeOfOperation mo
             }
         }
         default: return nullptr;
+    }
+}
+
+AESCipherImpl::~AESCipherImpl()
+{
+    decltype(running_jobs_) runnings_jobs_copy;
+
+    {
+        std::lock_guard lock {mutex_};
+        runnings_jobs_copy = running_jobs_;
+    }
+
+    for (const auto &completion_token : runnings_jobs_copy)
+    {
+        completion_token.cancel();
+        completion_token.wait_for_completion();
     }
 }
 

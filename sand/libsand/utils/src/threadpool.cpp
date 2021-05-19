@@ -29,14 +29,18 @@ ThreadPool::~ThreadPool()
     }
 }
 
-void ThreadPool::add_job(Job &&job, Priority priority)
+CompletionToken ThreadPool::add_job(Job &&job, Priority priority)
 {
+    CompletionToken completion_token;
+
     {
         std::lock_guard<std::mutex> lock {mutex_};
-        jobs_[priority].emplace(std::move(job));
+        jobs_[priority].emplace(std::move(job), completion_token);
         ++jobs_count_;
     }
     cv_empty_.notify_one();
+
+    return completion_token;
 }
 
 size_t ThreadPool::DefaultThreadCount()
@@ -48,8 +52,6 @@ void ThreadPool::ThreadRoutine()
 {
     while (running_)
     {
-        Job job;
-
         std::unique_lock<std::mutex> lock {mutex_};
         cv_empty_.wait(lock, [this] { return jobs_count_ != 0 || !running_; });
 
@@ -58,10 +60,10 @@ void ThreadPool::ThreadRoutine()
             break;
         }
 
-        auto  it             = jobs_.rbegin();
-        auto  max_prio       = it->first;
-        auto &max_prio_queue = it->second;
-        job                  = std::move(max_prio_queue.front());
+        auto  it                     = jobs_.rbegin();
+        auto  max_prio               = it->first;
+        auto &max_prio_queue         = it->second;
+        auto [job, completion_token] = std::move(max_prio_queue.front());
         max_prio_queue.pop();
         if (max_prio_queue.empty())
         {
@@ -71,7 +73,13 @@ void ThreadPool::ThreadRoutine()
         --jobs_count_;
 
         lock.unlock();
-        job();
+
+        if (!completion_token.is_cancelled())
+        {
+            job(completion_token);
+        }
+
+        completion_token.complete();
     }
 }
 }  // namespace sand::utils

@@ -4,8 +4,11 @@
 
 namespace sand::utils
 {
-void MainExecuter::add_job(Job &&job, Priority /*priority*/)
+CompletionToken MainExecuter::add_job(Job &&job, Priority /*priority*/)
 {
-    job();
+    CompletionToken completion_token;
+    job(completion_token);
+    completion_token.complete();
+    return completion_token;
 }
 }  // namespace sand::utils

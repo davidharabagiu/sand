@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <ctime>
 
-#include "mainexecuter.hpp"
 #include "rsacipherimpl.hpp"
 #include "testutils.hpp"
 #include "threadpool.hpp"
@@ -48,19 +47,19 @@ protected:
 
 TEST_F(RSACipherTest, SingleProcessingBlock)
 {
-    MainExecuter executer;
+    ThreadPool executer;
     RunTest(executer, 32, 1);
 }
 
 TEST_F(RSACipherTest, MultipleProcessingBlocks_SingleJob)
 {
-    MainExecuter executer;
+    ThreadPool executer;
     RunTest(executer, 100000, 1);
 }
 
 TEST_F(RSACipherTest, MultipleProcessingBlocks_MultipleJobs_SingleThread)
 {
-    MainExecuter executer;
+    ThreadPool executer;
     RunTest(executer, 100000, 8);
 }
 

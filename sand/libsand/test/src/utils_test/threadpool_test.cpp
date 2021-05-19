@@ -36,7 +36,7 @@ TEST_F(ThreadPoolTest, SamePriority_PreserveInsertionOrder)
     for (int i = 0; i != total_jobs; ++i)
     {
         thread_pool.add_job(
-            [&, job_index = i] {
+            [&, job_index = i](const CompletionToken &) {
                 {
                     std::lock_guard<std::mutex> lock {mut};
                     ++done_jobs;
@@ -70,7 +70,7 @@ TEST_F(ThreadPoolTest, SamePriority_MultipleThreads)
     for (int i = 0; i != total_jobs; ++i)
     {
         thread_pool.add_job(
-            [&] {
+            [&](const CompletionToken &) {
                 {
                     std::lock_guard<std::mutex> lock {mut};
                     ++done_jobs;
@@ -105,7 +105,7 @@ TEST_F(ThreadPoolTest, DifferentPriorities_PreserveOrder)
     std::promise<void> promise_start_filler_job;
     auto               future_start_filler_job = promise_start_filler_job.get_future();
     thread_pool.add_job(
-        [&] {
+        [&](const CompletionToken &) {
             promise_start_filler_job.set_value();
             future_keep_busy.wait();
         },
@@ -119,7 +119,7 @@ TEST_F(ThreadPoolTest, DifferentPriorities_PreserveOrder)
     {
         Executer::Priority p = i + 1;
         thread_pool.add_job(
-            [&, priority = p] {
+            [&, priority = p](const CompletionToken &) {
                 {
                     std::lock_guard<std::mutex> lock {mut};
                     ++done_jobs;
@@ -158,7 +158,7 @@ TEST_F(ThreadPoolTest, DifferentPriorities_MultipleThreads)
     {
         Executer::Priority p = i + 1;
         thread_pool.add_job(
-            [&] {
+            [&](const CompletionToken &) {
                 {
                     std::lock_guard<std::mutex> lock {mut};
                     ++done_jobs;

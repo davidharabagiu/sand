@@ -3,7 +3,9 @@
 
 #include <map>
 #include <mutex>
+#include <set>
 
+#include "completiontoken.hpp"
 #include "rsacipher.hpp"
 
 typedef struct bio_st BIO;
@@ -15,19 +17,21 @@ namespace sand::crypto
 class RSACipherImpl : public RSACipher
 {
 public:
+    ~RSACipherImpl() override;
+
     [[nodiscard]] std::future<bool>       generate_key_pair(ModulusSize modulus_size,
               PublicExponent public_exponent, Key &public_key, Key &private_key,
-              utils::Executer &executer) const override;
+              utils::Executer &executer) override;
     [[nodiscard]] std::future<ByteVector> encrypt(const Key &public_key,
-        const ByteVector &plain_text, utils::Executer &executer, int job_count) const override;
+        const ByteVector &plain_text, utils::Executer &executer, int job_count) override;
     [[nodiscard]] std::future<ByteVector> decrypt(const Key &private_key,
-        const ByteVector &cipher_text, utils::Executer &executer, int job_count) const override;
+        const ByteVector &cipher_text, utils::Executer &executer, int job_count) override;
 
 private:
     using OpenSSLReadKeyFunction = RSA *(*) (BIO *, RSA **, pem_password_cb *, void *);
     using OpenSSLCryptoFunction  = int (*)(int, const unsigned char *, unsigned char *, RSA *, int);
 
-    [[nodiscard]] static std::future<ByteVector> start_operation(const Key &key,
+    [[nodiscard]] std::future<ByteVector> start_operation(const Key &key,
         const ByteVector &plain_text, utils::Executer &executer, int job_count,
         OpenSSLReadKeyFunction read_key_function, OpenSSLCryptoFunction crypto_function,
         bool subtract_padding);
@@ -54,6 +58,9 @@ private:
         std::map<int, ByteVector> partial_results;
         std::mutex                mutex;
     };
+
+    std::set<utils::CompletionToken> running_jobs_;
+    std::mutex                       mutex_;
 };
 }  // namespace sand::crypto
 

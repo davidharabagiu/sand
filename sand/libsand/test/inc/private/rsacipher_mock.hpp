@@ -12,11 +12,11 @@ class RSACipherMock : public RSACipher
 {
 public:
     MOCK_METHOD(std::future<bool>, generate_key_pair,
-        (ModulusSize, PublicExponent, Key &, Key &, Executer &), (const, override));
+        (ModulusSize, PublicExponent, Key &, Key &, Executer &), (override));
     MOCK_METHOD(std::future<ByteVector>, encrypt,
-        (const Key &, const ByteVector &, Executer &, int), (const, override));
+        (const Key &, const ByteVector &, Executer &, int), (override));
     MOCK_METHOD(std::future<ByteVector>, decrypt,
-        (const Key &, const ByteVector &, Executer &, int), (const, override));
+        (const Key &, const ByteVector &, Executer &, int), (override));
 };
 
 #endif  // SAND_TEST_RSACIPHER_MOCK_HPP_

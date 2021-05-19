@@ -33,10 +33,10 @@ public:
 
     [[nodiscard]] virtual std::future<ByteVector> encrypt(ModeOfOperation mode_of_operation,
         const ByteVector &key, const ByteVector &iv, const ByteVector &plain_text,
-        utils::Executer &executer) const = 0;
+        utils::Executer &executer) = 0;
     [[nodiscard]] virtual std::future<ByteVector> decrypt(ModeOfOperation mode_of_operation,
         const ByteVector &key, const ByteVector &iv, const ByteVector &cipher_text,
-        utils::Executer &executer) const = 0;
+        utils::Executer &executer) = 0;
 };
 }  // namespace sand::crypto
 
