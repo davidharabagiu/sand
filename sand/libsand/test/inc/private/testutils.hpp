@@ -4,6 +4,7 @@
 #include <gmock/gmock.h>
 
 #include <cstddef>
+#include <functional>
 #include <type_traits>
 #include <utility>
 
@@ -17,6 +18,8 @@ inline auto random_values(OutputIt dst, size_t count) -> std::enable_if_t<std::i
         *dst++ = Int(std::rand());
     }
 }
+
+bool wait_for(const std::function<bool()> &predicate, unsigned timeout_ms = 0);
 }  // namespace testutils
 
 MATCHER_P(SmartPointerCompare, rhs, "Compares a smart pointer to a raw pointer")

@@ -10,9 +10,11 @@
 #include "iothreadpool.hpp"
 #include "peermanagerflowimpl.hpp"
 #include "random.hpp"
+#include "testutils.hpp"
 #include "threadpool.hpp"
 
 #include "dnlconfigloader_mock.hpp"
+#include "peermanagerflowlistener_mock.hpp"
 #include "protocolmessagehandler_mock.hpp"
 
 using namespace ::testing;
@@ -36,14 +38,14 @@ protected:
             std::make_shared<DNLConfig>(std::unique_ptr<DNLConfigLoader>(dnl_config_loader_));
         executer_    = std::make_shared<ThreadPool>();
         io_executer_ = std::make_shared<IOThreadPool>();
+        listener_    = std::make_shared<NiceMock<PeerManagerFlowListenerMock>>();
     }
 
     std::unique_ptr<PeerManagerFlowImpl> make_peer_manager()
     {
-        auto obj = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
-            inbound_request_dispatcher_, dnl_config_, executer_, io_executer_);
-        obj->start();
-        return obj;
+        auto flow = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
+            inbound_request_dispatcher_, dnl_config_, executer_, io_executer_, 0);
+        return flow;
     }
 
     IPv4Address random_ip_address()
@@ -71,17 +73,13 @@ protected:
         };
     }
 
-    static auto make_ping_reply(bool ok)
+    static auto make_basic_reply(bool ok)
     {
-        return [=](auto, auto msg) {
+        return [=](IPv4Address, std::unique_ptr<sand::protocol::Message> msg) {
             std::promise<std::unique_ptr<BasicReply>> promise;
 
-            auto *_msg = dynamic_cast<PingMessage *>(msg.get());
-            EXPECT_TRUE(_msg);
-            EXPECT_EQ(_msg->message_code, MessageCode::PING);
-
-            auto reply         = std::make_unique<BasicReply>(_msg->message_code);
-            reply->request_id  = _msg->request_id;
+            auto reply         = std::make_unique<BasicReply>(msg->message_code);
+            reply->request_id  = msg->request_id;
             reply->status_code = ok ? StatusCode::OK : StatusCode::UNREACHABLE;
             promise.set_value(std::move(reply));
 
@@ -89,18 +87,37 @@ protected:
         };
     }
 
-    std::shared_ptr<ProtocolMessageHandlerMock> protocol_message_handler_;
-    std::shared_ptr<InboundRequestDispatcher>   inbound_request_dispatcher_;
-    DNLConfigLoaderMock *                       dnl_config_loader_;
-    std::shared_ptr<DNLConfig>                  dnl_config_;
-    std::shared_ptr<Executer>                   executer_;
-    std::shared_ptr<Executer>                   io_executer_;
-    std::chrono::milliseconds                   timeout_ {100};
-    Random                                      rng_;
+    std::shared_ptr<ProtocolMessageHandlerMock>  protocol_message_handler_;
+    std::shared_ptr<InboundRequestDispatcher>    inbound_request_dispatcher_;
+    DNLConfigLoaderMock *                        dnl_config_loader_;
+    std::shared_ptr<DNLConfig>                   dnl_config_;
+    std::shared_ptr<Executer>                    executer_;
+    std::shared_ptr<Executer>                    io_executer_;
+    std::shared_ptr<PeerManagerFlowListenerMock> listener_;
+    std::chrono::milliseconds                    timeout_ {100};
+    Random                                       rng_;
 };
 }  // namespace
 
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_DNLConfigEmpty)
+TEST_F(PeerManagerFlowTest, GetPeers_FlowNotStarted)
+{
+    const size_t requested_peer_count = 1;
+    const auto   dnla1                = random_ip_address();
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    EXPECT_CALL(*protocol_message_handler_, send(AnyOf(dnla1), _)).Times(0);
+
+    auto peer_manager = make_peer_manager();
+    EXPECT_EQ(peer_manager->state(), PeerManagerFlow::State::IDLE);
+
+    auto f = peer_manager->get_peers(requested_peer_count);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+    EXPECT_TRUE(f.get().empty());
+}
+
+TEST_F(PeerManagerFlowTest, GetPeers_DNLConfigEmpty)
 {
     const size_t requested_peer_count = 3;
 
@@ -108,13 +125,16 @@ TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_DNLConfigEmpty)
     dnl_config_->reload();
 
     auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::ERROR; }, 100));
 
     auto f = peer_manager->get_peers(requested_peer_count);
     EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
     EXPECT_TRUE(f.get().empty());
 }
 
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1DownDNLNode)
+TEST_F(PeerManagerFlowTest, GetPeers_AllDNLNodesDown)
 {
     const size_t requested_peer_count = 3;
     const auto   dnla1                = random_ip_address();
@@ -122,16 +142,85 @@ TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1DownDNLNode)
     ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
     dnl_config_->reload();
 
-    EXPECT_CALL(*protocol_message_handler_, send(dnla1, _)).Times(1).WillOnce(make_pull_reply({}));
+    EXPECT_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .Times(0);
+    EXPECT_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .Times(1)
+        .WillOnce(make_basic_reply(false));
 
     auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::ERROR; }, 100));
 
     auto f = peer_manager->get_peers(requested_peer_count);
     EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
     EXPECT_TRUE(f.get().empty());
 }
 
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1DownDNLNode_1UpDNLNode)
+TEST_F(PeerManagerFlowTest, GetPeers_AllDNLNodesUp)
+{
+    const size_t requested_peer_count = 10;
+    const auto   dnla1                = random_ip_address();
+    const auto   dnla2                = random_ip_address();
+
+    std::vector<IPv4Address> peers1(8);
+    std::generate(peers1.begin(), peers1.end(), [&] { return random_ip_address(); });
+
+    std::vector<IPv4Address> peers2(8);
+    std::generate(peers2.begin(), peers2.end(), [&] { return random_ip_address(); });
+
+    ON_CALL(*dnl_config_loader_, load())
+        .WillByDefault(Return(std::vector<IPv4Address> {dnla1, dnla2}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(peers1));
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(peers2));
+
+    for (auto peer : peers1)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
+    }
+    for (auto peer : peers2)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
+    }
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    auto f = peer_manager->get_peers(requested_peer_count);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+
+    std::vector<IPv4Address> all_peers;
+    all_peers.insert(all_peers.end(), peers1.cbegin(), peers1.cend());
+    all_peers.insert(all_peers.end(), peers2.cbegin(), peers2.cend());
+
+    auto got_peers = f.get();
+    EXPECT_EQ(got_peers.size(), requested_peer_count);
+    ASSERT_THAT(got_peers, IsSubsetOf(all_peers));
+}
+
+TEST_F(PeerManagerFlowTest, GetPeers_SomeDNLNodesDown)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();
@@ -144,533 +233,655 @@ TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1DownDNLNode_1UpDNLNode)
         .WillByDefault(Return(std::vector<IPv4Address> {dnla1, dnla2}));
     dnl_config_->reload();
 
-    EXPECT_CALL(*protocol_message_handler_, send(dnla1, _)).Times(1).WillOnce(make_pull_reply({}));
-    EXPECT_CALL(*protocol_message_handler_, send(dnla2, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(peers));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(false));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply({}));
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(peers));
 
     for (auto peer : peers)
     {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(1);
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
     }
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
 
     auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
 
     auto f = peer_manager->get_peers(requested_peer_count);
     EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
     ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
 }
 
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_2UpDNLNodes_FirstReturnsAllRequestedPeers)
+TEST_F(PeerManagerFlowTest, GetPeers_AllDNLNodesUp_SomePeersDead)
+{
+    const size_t requested_peer_count = 10;
+    const auto   dnla1                = random_ip_address();
+
+    std::vector<IPv4Address> alive_peers(5);
+    std::generate(alive_peers.begin(), alive_peers.end(), [&] { return random_ip_address(); });
+    std::vector<IPv4Address> dead_peers(5);
+    std::generate(alive_peers.begin(), alive_peers.end(), [&] { return random_ip_address(); });
+    std::vector<IPv4Address> all_peers(alive_peers.cbegin(), alive_peers.cend());
+    all_peers.insert(all_peers.end(), dead_peers.cbegin(), dead_peers.cend());
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(all_peers));
+
+    for (auto peer : alive_peers)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
+    }
+    for (auto peer : dead_peers)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(false));
+    }
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    auto f = peer_manager->get_peers(requested_peer_count);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+
+    auto got_peers = f.get();
+    ASSERT_THAT(got_peers, UnorderedElementsAreArray(alive_peers));
+}
+
+TEST_F(PeerManagerFlowTest, GetPeers_AllDNLNodesUp_SomePeersDead_UseSecondDNLAsBackup)
 {
     const size_t requested_peer_count = 10;
     const auto   dnla1                = random_ip_address();
     const auto   dnla2                = random_ip_address();
 
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
+    std::vector<IPv4Address> alive_peers(5);
+    std::generate(alive_peers.begin(), alive_peers.end(), [&] { return random_ip_address(); });
+    std::vector<IPv4Address> dead_peers(5);
+    std::generate(alive_peers.begin(), alive_peers.end(), [&] { return random_ip_address(); });
+    std::vector<IPv4Address> all_peers(alive_peers.cbegin(), alive_peers.cend());
+    all_peers.insert(all_peers.end(), dead_peers.cbegin(), dead_peers.cend());
+    std::vector<IPv4Address> dnln1_peers;
+    std::copy_n(alive_peers.cbegin(), 3, std::back_inserter(dnln1_peers));
+    std::copy_n(dead_peers.cbegin(), 2, std::back_inserter(dnln1_peers));
+    std::vector<IPv4Address> dnln2_peers;
+    std::copy_n(alive_peers.crbegin(), 2, std::back_inserter(dnln2_peers));
+    std::copy_n(dead_peers.crbegin(), 3, std::back_inserter(dnln2_peers));
 
     ON_CALL(*dnl_config_loader_, load())
         .WillByDefault(Return(std::vector<IPv4Address> {dnla1, dnla2}));
     dnl_config_->reload();
 
-    EXPECT_CALL(*protocol_message_handler_, send(AnyOf(dnla1, dnla2), _))
-        .Times(1)
-        .WillOnce(make_pull_reply(peers));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(dnln1_peers));
 
-    for (auto peer : peers)
+    ON_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(dnln2_peers));
+
+    for (auto peer : alive_peers)
     {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(1);
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
     }
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
+    for (auto peer : dead_peers)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(false));
+    }
 
     auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
 
     auto f = peer_manager->get_peers(requested_peer_count);
     EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
+
+    auto got_peers = f.get();
+    ASSERT_THAT(got_peers, UnorderedElementsAreArray(alive_peers));
 }
 
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_2UpDNLNodes_EachReturnsSomePeers)
+TEST_F(PeerManagerFlowTest, GetPeers_FromOtherPeers_Cause_SomeDied)
 {
-    const size_t requested_peer_count        = 10;
-    const size_t peers_returned_by_first_dnl = 7;
-    const auto   dnla1                       = random_ip_address();
-    const auto   dnla2                       = random_ip_address();
+    const size_t requested_peer_count = 10;
+    const auto   dnla1                = random_ip_address();
 
     std::vector<IPv4Address> peers(10);
     std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(peers));
+
+    for (auto peer : peers)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
+    }
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    auto f = peer_manager->get_peers(requested_peer_count);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+    auto got_peers = f.get();
+    ASSERT_THAT(got_peers, UnorderedElementsAreArray(peers));
+
+    EXPECT_TRUE(Mock::VerifyAndClear(protocol_message_handler_.get()));
+
+    std::vector<IPv4Address> new_peers(5);
+    std::generate(new_peers.begin(), new_peers.end(), [&] { return random_ip_address(); });
+
+    auto old_peers = peers;
+    peers.clear();
+
+    for (size_t i = 0; i != new_peers.size(); ++i)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(old_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
+            .WillByDefault(make_basic_reply(true));
+        ON_CALL(*protocol_message_handler_,
+            send(old_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+            .WillByDefault(make_pull_reply({new_peers[i]}));
+        ON_CALL(*protocol_message_handler_,
+            send(new_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
+        peers.push_back(old_peers[i]);
+        peers.push_back(new_peers[i]);
+    }
+
+    for (size_t i = new_peers.size(); i != old_peers.size(); ++i)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(old_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
+            .WillByDefault(make_basic_reply(false));
+    }
+
+    f = peer_manager->get_peers(requested_peer_count);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+    got_peers = f.get();
+    ASSERT_THAT(got_peers, UnorderedElementsAreArray(peers));
+}
+
+TEST_F(PeerManagerFlowTest, GetPeers_FromOtherPeers_Cause_WantMore)
+{
+    const size_t requested_peer_count = 15;
+    const auto   dnla1                = random_ip_address();
+
+    std::vector<IPv4Address> peers(10);
+    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply(peers));
+
+    for (auto peer : peers)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
+    }
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    auto f = peer_manager->get_peers(requested_peer_count);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+    auto got_peers = f.get();
+    ASSERT_THAT(got_peers, UnorderedElementsAreArray(peers));
+
+    EXPECT_TRUE(Mock::VerifyAndClear(protocol_message_handler_.get()));
+
+    std::vector<IPv4Address> new_peers(5);
+    std::generate(new_peers.begin(), new_peers.end(), [&] { return random_ip_address(); });
+
+    auto old_peers = peers;
+    peers.clear();
+
+    for (size_t i = 0; i != new_peers.size(); ++i)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(old_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
+            .WillByDefault(make_basic_reply(true));
+        ON_CALL(*protocol_message_handler_,
+            send(old_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+            .WillByDefault(make_pull_reply({new_peers[i]}));
+        ON_CALL(*protocol_message_handler_,
+            send(new_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .WillByDefault(make_basic_reply(true));
+        peers.push_back(old_peers[i]);
+        peers.push_back(new_peers[i]);
+    }
+
+    for (size_t i = new_peers.size(); i != old_peers.size(); ++i)
+    {
+        ON_CALL(*protocol_message_handler_,
+            send(old_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
+            .WillByDefault(make_basic_reply(true));
+        ON_CALL(*protocol_message_handler_,
+            send(old_peers[i],
+                Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+            .WillByDefault(make_pull_reply({}));
+        peers.push_back(old_peers[i]);
+    }
+
+    f = peer_manager->get_peers(requested_peer_count);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+    got_peers = f.get();
+    ASSERT_THAT(got_peers, UnorderedElementsAreArray(peers));
+}
+
+TEST_F(PeerManagerFlowTest, HandlePush)
+{
+    const auto dnla1 = random_ip_address();
+    const auto peer  = random_ip_address();
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply({}));
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    PushMessage msg;
+    msg.request_id = rng_.next<RequestId>();
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(peer, AllOf(Pointee(Field(&BasicReply::request_id, msg.request_id)),
+                             Pointee(Field(&BasicReply::request_message_code, msg.message_code)),
+                             Pointee(Field(&BasicReply::status_code, StatusCode::OK)))))
+        .Times(1)
+        .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
+    inbound_request_dispatcher_->on_message_received(peer, msg);
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
+        .Times(1)
+        .WillOnce(make_basic_reply(true));
+    EXPECT_CALL(*protocol_message_handler_,
+        send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::BYE))))
+        .Times(1);
+
+    // Process all messages
+    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+
+    auto f = peer_manager->get_peers(1);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+    ASSERT_THAT(f.get(), ElementsAre(peer));
+}
+
+TEST_F(PeerManagerFlowTest, HandleBye)
+{
+    const auto dnla1 = random_ip_address();
+    const auto peer  = random_ip_address();
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply({}));
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    PushMessage msg1;
+    msg1.request_id = rng_.next<RequestId>();
+    ON_CALL(*protocol_message_handler_,
+        send_reply(peer, Pointee(Field(&BasicReply::request_id, msg1.request_id))))
+        .WillByDefault([](...) { return std::async(std::launch::deferred, [] { return true; }); });
+    inbound_request_dispatcher_->on_message_received(peer, msg1);
+
+    // Process all messages
+    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+
+    ByeMessage msg2;
+    msg2.request_id = rng_.next<RequestId>();
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(peer, Pointee(Field(&BasicReply::request_id, msg2.request_id))))
+        .Times(0);
+    inbound_request_dispatcher_->on_message_received(peer, msg2);
+
+    // Process all messages
+    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+
+    auto f = peer_manager->get_peers(1);
+    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
+    EXPECT_TRUE(f.get().empty());
+}
+
+TEST_F(PeerManagerFlowTest, HandlePing)
+{
+    const auto dnla1 = random_ip_address();
+    const auto peer  = random_ip_address();
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply({}));
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    PingMessage msg;
+    msg.request_id = rng_.next<RequestId>();
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(peer, AllOf(Pointee(Field(&BasicReply::request_id, msg.request_id)),
+                             Pointee(Field(&BasicReply::request_message_code, msg.message_code)),
+                             Pointee(Field(&BasicReply::status_code, StatusCode::OK)))))
+        .Times(1)
+        .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
+    inbound_request_dispatcher_->on_message_received(peer, msg);
+
+    // Process all messages
+    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+}
+
+TEST_F(PeerManagerFlowTest, HandlePull)
+{
+    std::vector<IPv4Address> peers(5);
+    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
+
+    const auto dnla1 = random_ip_address();
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply({}));
+
+    auto peer_manager = make_peer_manager();
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
+
+    std::vector<PushMessage> push_messages(peers.size());
+    for (size_t i = 0; i != peers.size(); ++i)
+    {
+        push_messages[i].request_id = rng_.next<RequestId>();
+        ON_CALL(*protocol_message_handler_,
+            send_reply(
+                peers[i], Pointee(Field(&BasicReply::request_id, push_messages[i].request_id))))
+            .WillByDefault(
+                [](...) { return std::async(std::launch::deferred, [] { return true; }); });
+        inbound_request_dispatcher_->on_message_received(peers[i], push_messages[i]);
+    }
+
+    // Process all messages
+    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+
+    ON_CALL(*protocol_message_handler_,
+        send(AnyOfArray(peers),
+            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
+        .WillByDefault(make_basic_reply(true));
+
+    PullMessage pull_message;
+    pull_message.request_id    = rng_.next<RequestId>();
+    pull_message.address_count = uint8_t(peers.size() + 1);
+    auto pull_message_src      = random_ip_address();
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(pull_message_src,
+            AllOf(Pointee(Field(&BasicReply::request_id, pull_message.request_id)),
+                Pointee(Field(&BasicReply::status_code, StatusCode::OK)),
+                Pointee(Field(&BasicReply::request_message_code, pull_message.message_code)),
+                ResultOf([](auto &&ptr) { return ptr.get(); },
+                    WhenDynamicCastTo<PullReply *>(
+                        Pointee(Field(&PullReply::peers, UnorderedElementsAreArray(peers))))))))
+        .Times(1)
+        .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
+
+    inbound_request_dispatcher_->on_message_received(pull_message_src, pull_message);
+
+    // Process all messages
+    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+}
+
+TEST_F(PeerManagerFlowTest, NotifiesStateChanges)
+{
+    const auto dnla1 = random_ip_address();
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply({}));
+
+    auto peer_manager = make_peer_manager();
+    EXPECT_TRUE(peer_manager->register_listener(listener_));
+
+    bool change_to_starting_notified = false;
+    bool change_to_running_notified  = false;
+
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::STARTING)).WillByDefault([&](...) {
+        change_to_starting_notified = true;
+    });
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::RUNNING)).WillByDefault([&](...) {
+        change_to_running_notified = true;
+    });
+
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for([&] { return change_to_starting_notified; }, 100));
+    EXPECT_TRUE(testutils::wait_for([&] { return change_to_running_notified; }, 100));
+
+    bool change_to_stopping_notified = false;
+    bool change_to_idle_notified     = false;
+
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::STOPPING)).WillByDefault([&](...) {
+        change_to_stopping_notified = true;
+    });
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::IDLE)).WillByDefault([&](...) {
+        change_to_idle_notified = true;
+    });
+
+    peer_manager->stop();
+    EXPECT_TRUE(change_to_stopping_notified);
+    EXPECT_TRUE(change_to_idle_notified);
+}
+
+TEST_F(PeerManagerFlowTest, UnregisteredListenersAreNotNotifiedAnymore)
+{
+    const auto dnla1 = random_ip_address();
+
+    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
+    dnl_config_->reload();
+
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .WillByDefault(make_basic_reply(true));
+    ON_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .WillByDefault(make_pull_reply({}));
+
+    auto peer_manager = make_peer_manager();
+    EXPECT_TRUE(peer_manager->register_listener(listener_));
+
+    bool change_to_starting_notified = false;
+    bool change_to_running_notified  = false;
+
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::STARTING)).WillByDefault([&](...) {
+        change_to_starting_notified = true;
+    });
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::RUNNING)).WillByDefault([&](...) {
+        change_to_running_notified = true;
+    });
+
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for([&] { return change_to_starting_notified; }, 100));
+    EXPECT_TRUE(testutils::wait_for([&] { return change_to_running_notified; }, 100));
+
+    EXPECT_TRUE(peer_manager->unregister_listener(listener_));
+
+    bool change_to_stopping_notified = false;
+    bool change_to_idle_notified     = false;
+
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::STOPPING)).WillByDefault([&](...) {
+        change_to_stopping_notified = true;
+    });
+    ON_CALL(*listener_, on_state_changed(PeerManagerFlow::State::IDLE)).WillByDefault([&](...) {
+        change_to_idle_notified = true;
+    });
+
+    peer_manager->stop();
+    EXPECT_FALSE(change_to_stopping_notified);
+    EXPECT_FALSE(change_to_idle_notified);
+}
+
+TEST_F(PeerManagerFlowTest, PreloadPeers)
+{
+    const auto dnla1 = random_ip_address();
+    const auto dnla2 = random_ip_address();
+
+    std::vector<IPv4Address> peers1(5);
+    std::generate(peers1.begin(), peers1.end(), [&] { return random_ip_address(); });
+
+    std::vector<IPv4Address> peers2(5);
+    std::generate(peers2.begin(), peers2.end(), [&] { return random_ip_address(); });
 
     ON_CALL(*dnl_config_loader_, load())
         .WillByDefault(Return(std::vector<IPv4Address> {dnla1, dnla2}));
     dnl_config_->reload();
 
-    EXPECT_CALL(*protocol_message_handler_, send(dnla1, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(std::vector<IPv4Address>(
-            peers.cbegin(), peers.cbegin() + peers_returned_by_first_dnl)));
-    EXPECT_CALL(*protocol_message_handler_, send(dnla2, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(
-            std::vector<IPv4Address>(peers.cbegin() + peers_returned_by_first_dnl, peers.cend())));
+    EXPECT_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .Times(AnyNumber())
+        .WillRepeatedly(make_basic_reply(true));
+    EXPECT_CALL(*protocol_message_handler_,
+        send(dnla1, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .Times(AnyNumber())
+        .WillRepeatedly(make_pull_reply(peers1));
 
-    for (auto peer : peers)
+    EXPECT_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+        .Times(AnyNumber())
+        .WillRepeatedly(make_basic_reply(true));
+    EXPECT_CALL(*protocol_message_handler_,
+        send(dnla2, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
+        .Times(AnyNumber())
+        .WillRepeatedly(make_pull_reply(peers2));
+
+    for (auto peer : peers1)
     {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(1);
+        EXPECT_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .Times(1)
+            .WillOnce(make_basic_reply(true));
     }
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1UpDNLNode_ReturnsMorePeersThanRequested)
-{
-    const size_t requested_peer_count = 10;
-    const auto   dnla1                = random_ip_address();
-
-    std::vector<IPv4Address> peers(15);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    EXPECT_CALL(*protocol_message_handler_, send(dnla1, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(peers));
-
-    for (auto peer : peers)
+    for (auto peer : peers2)
     {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(1);
-    }
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-
-    auto got_peers = f.get();
-    EXPECT_EQ(got_peers.size(), requested_peer_count);
-    ASSERT_THAT(got_peers, IsSubsetOf(peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_1UpDNLNode_SomePeersDead)
-{
-    const size_t requested_peer_count = 10;
-    const size_t dead_peers_count     = 3;
-    const auto   dnla1                = random_ip_address();
-
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-    std::vector<IPv4Address> peers_from_dnln2(3);
-    std::vector<IPv4Address> alive_peers(peers.cbegin() + dead_peers_count, peers.cend());
-    std::vector<IPv4Address> dead_peers(peers.cbegin(), peers.cbegin() + dead_peers_count);
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    EXPECT_CALL(*protocol_message_handler_, send(dnla1, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(peers));
-
-    for (auto peer : peers)
-    {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(1);
-    }
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(alive_peers), _))
-        .WillByDefault(make_ping_reply(true));
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(dead_peers), _))
-        .WillByDefault(make_ping_reply(false));
-
-    auto peer_manager = make_peer_manager();
-
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(alive_peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromDNL_2UpDNLNodes_SomePeersDead_UseSecondDNLAsBackup)
-{
-    const size_t requested_peer_count = 10;
-    const size_t dead_peers_count     = 3;
-    const auto   dnla1                = random_ip_address();
-    const auto   dnla2                = random_ip_address();
-
-    std::vector<IPv4Address> peers_from_dnln1(10);
-    std::generate(
-        peers_from_dnln1.begin(), peers_from_dnln1.end(), [&] { return random_ip_address(); });
-    std::vector<IPv4Address> peers_from_dnln2(3);
-    std::generate(
-        peers_from_dnln2.begin(), peers_from_dnln2.end(), [&] { return random_ip_address(); });
-    std::vector<IPv4Address> alive_peers(10);
-    std::copy(peers_from_dnln2.cbegin(), peers_from_dnln2.cend(),
-        std::copy(peers_from_dnln1.cbegin() + dead_peers_count, peers_from_dnln1.cend(),
-            alive_peers.begin()));
-    std::vector<IPv4Address> dead_peers(
-        peers_from_dnln1.cbegin(), peers_from_dnln1.cbegin() + dead_peers_count);
-
-    ON_CALL(*dnl_config_loader_, load())
-        .WillByDefault(Return(std::vector<IPv4Address> {dnla1, dnla2}));
-    dnl_config_->reload();
-
-    EXPECT_CALL(*protocol_message_handler_, send(dnla1, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(peers_from_dnln1));
-    EXPECT_CALL(*protocol_message_handler_, send(dnla2, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(peers_from_dnln2));
-
-    for (auto peer : peers_from_dnln1)
-    {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(1);
-    }
-    for (auto peer : peers_from_dnln2)
-    {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(1);
-    }
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(alive_peers), _))
-        .WillByDefault(make_ping_reply(true));
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(dead_peers), _))
-        .WillByDefault(make_ping_reply(false));
-
-    auto peer_manager = make_peer_manager();
-
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(alive_peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromCache_AllAlive)
-{
-    const size_t requested_peer_count = 10;
-    const auto   dnla1                = random_ip_address();
-
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    EXPECT_CALL(*protocol_message_handler_, send(dnla1, _))
-        .Times(1)
-        .WillOnce(make_pull_reply(peers));
-
-    for (auto peer : peers)
-    {
-        EXPECT_CALL(*protocol_message_handler_, send(peer, _)).Times(2);
-    }
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    // Get from DNL
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-
-    // Get from cache
-    f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromCache_SomePeersDied)
-{
-    const size_t requested_peer_count = 10;
-    const size_t dead_peers_count     = 3;
-    const auto   dnla1                = random_ip_address();
-
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(peers));
-
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    // Get from DNL
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-
-    EXPECT_TRUE(Mock::VerifyAndClear(protocol_message_handler_.get()));
-
-    std::vector<IPv4Address> dead_peers(peers.cbegin(), peers.cbegin() + dead_peers_count);
-    std::vector<IPv4Address> alive_peers(peers.cbegin() + dead_peers_count, peers.cend());
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(alive_peers));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(dead_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(false));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(alive_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(true));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(alive_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
-        .WillByDefault(make_pull_reply({}));
-
-    // Get from cache
-    f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(alive_peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromCache_SomePeersDied_ReplenishFromDNL)
-{
-    const size_t requested_peer_count = 10;
-    const size_t dead_peers_count     = 3;
-    const auto   dnla1                = random_ip_address();
-
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(peers));
-
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    // Get from DNL
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-
-    EXPECT_TRUE(Mock::VerifyAndClear(protocol_message_handler_.get()));
-
-    std::vector<IPv4Address> dead_peers(peers.cbegin(), peers.cbegin() + dead_peers_count);
-    std::vector<IPv4Address> alive_peers(peers.cbegin() + dead_peers_count, peers.cend());
-    std::vector<IPv4Address> new_peers(5);
-    std::generate(new_peers.begin(), new_peers.end(), [&] { return random_ip_address(); });
-    alive_peers.insert(alive_peers.end(), new_peers.cbegin(), new_peers.cend());
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(alive_peers));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(dead_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(false));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(alive_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(true));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(alive_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
-        .WillByDefault(make_pull_reply({}));
-
-    // Get from cache
-    f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    auto got_peers = f.get();
-    EXPECT_EQ(got_peers.size(), requested_peer_count);
-    ASSERT_THAT(got_peers, IsSubsetOf(alive_peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromCache_SomePeersDied_ReplenishFromOtherPeers)
-{
-    const size_t requested_peer_count = 10;
-    const size_t dead_peers_count     = 3;
-    const auto   dnla1                = random_ip_address();
-
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(peers));
-
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    // Get from DNL
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-
-    EXPECT_TRUE(Mock::VerifyAndClear(protocol_message_handler_.get()));
-
-    std::vector<IPv4Address> dead_peers(peers.cbegin(), peers.cbegin() + dead_peers_count);
-    std::vector<IPv4Address> alive_peers(peers.cbegin() + dead_peers_count, peers.cend());
-    std::vector<IPv4Address> new_peers(5);
-    std::generate(new_peers.begin(), new_peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(alive_peers));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(dead_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(false));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(alive_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(true));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(new_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(true));
-
-    for (size_t i = 0, j = 0; i != alive_peers.size(); ++i)
-    {
-        if (j < new_peers.size())
-        {
-            ON_CALL(*protocol_message_handler_,
-                send(alive_peers[i],
-                    Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
-                .WillByDefault(make_pull_reply({new_peers[j]}));
-            ++j;
-        }
-        else
-        {
-            ON_CALL(*protocol_message_handler_,
-                send(alive_peers[i],
-                    Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
-                .WillByDefault(make_pull_reply({}));
-        }
+        EXPECT_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PUSH))))
+            .Times(1)
+            .WillOnce(make_basic_reply(true));
     }
 
-    // Get from cache
-    f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    auto got_peers = f.get();
-    EXPECT_EQ(got_peers.size(), requested_peer_count);
+    auto peer_manager = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
+        inbound_request_dispatcher_, dnl_config_, executer_, io_executer_, 10);
+    peer_manager->start();
+    EXPECT_TRUE(testutils::wait_for(
+        [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
 
-    alive_peers.insert(alive_peers.end(), new_peers.cbegin(), new_peers.cend());
-    ASSERT_THAT(got_peers, IsSubsetOf(alive_peers));
-}
+    // Wait a little bit more until are PUSH messages are sent
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-TEST_F(PeerManagerFlowTest, GetPeers_FromCache_WantMore_ReplenishFromDNL)
-{
-    const size_t requested_peer_count = 10;
-    const auto   dnla1                = random_ip_address();
+    Mock::VerifyAndClearExpectations(protocol_message_handler_.get());
 
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(peers));
-
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    // Get from DNL
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-
-    EXPECT_TRUE(Mock::VerifyAndClear(protocol_message_handler_.get()));
-
-    std::vector<IPv4Address> new_peers(5);
-    std::generate(new_peers.begin(), new_peers.end(), [&] { return random_ip_address(); });
-    peers.insert(peers.end(), new_peers.cbegin(), new_peers.cend());
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(peers));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(true));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
-        .WillByDefault(make_pull_reply({}));
-
-    // Get from cache
-    f = peer_manager->get_peers(int(requested_peer_count + new_peers.size() / 2));
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    auto got_peers = f.get();
-    EXPECT_EQ(got_peers.size(), requested_peer_count + new_peers.size() / 2);
-    ASSERT_THAT(got_peers, IsSubsetOf(peers));
-}
-
-TEST_F(PeerManagerFlowTest, GetPeers_FromCache_WantMore_ReplenishFromOtherPeers)
-{
-    const size_t requested_peer_count = 10;
-    const auto   dnla1                = random_ip_address();
-
-    std::vector<IPv4Address> peers(10);
-    std::generate(peers.begin(), peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*dnl_config_loader_, load()).WillByDefault(Return(std::vector<IPv4Address> {dnla1}));
-    dnl_config_->reload();
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(peers));
-
-    ON_CALL(*protocol_message_handler_, send(AnyOfArray(peers), _))
-        .WillByDefault(make_ping_reply(true));
-
-    auto peer_manager = make_peer_manager();
-
-    // Get from DNL
-    auto f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    ASSERT_THAT(f.get(), UnorderedElementsAreArray(peers));
-
-    EXPECT_TRUE(Mock::VerifyAndClear(protocol_message_handler_.get()));
-
-    std::vector<IPv4Address> new_peers(5);
-    std::generate(new_peers.begin(), new_peers.end(), [&] { return random_ip_address(); });
-
-    ON_CALL(*protocol_message_handler_, send(dnla1, _)).WillByDefault(make_pull_reply(peers));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(true));
-    ON_CALL(*protocol_message_handler_,
-        send(AnyOfArray(new_peers),
-            Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PING))))
-        .WillByDefault(make_ping_reply(true));
-
-    for (size_t i = 0, j = 0; i != peers.size(); ++i)
+    for (auto peer : peers1)
     {
-        if (j < new_peers.size())
-        {
-            ON_CALL(*protocol_message_handler_,
-                send(peers[i],
-                    Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
-                .WillByDefault(make_pull_reply({new_peers[j]}));
-            ++j;
-        }
-        else
-        {
-            ON_CALL(*protocol_message_handler_,
-                send(peers[i],
-                    Pointee(Field(&sand::protocol::Message::message_code, MessageCode::PULL))))
-                .WillByDefault(make_pull_reply({}));
-        }
+        EXPECT_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::BYE))))
+            .Times(1);
+    }
+    for (auto peer : peers2)
+    {
+        EXPECT_CALL(*protocol_message_handler_,
+            send(peer, Pointee(Field(&sand::protocol::Message::message_code, MessageCode::BYE))))
+            .Times(1);
     }
 
-    // Get from cache
-    f = peer_manager->get_peers(requested_peer_count);
-    EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
-    auto got_peers = f.get();
-    EXPECT_EQ(got_peers.size(), requested_peer_count);
-
-    peers.insert(peers.end(), new_peers.cbegin(), new_peers.cend());
-    ASSERT_THAT(got_peers, IsSubsetOf(peers));
+    peer_manager->stop();
+    Mock::VerifyAndClearExpectations(protocol_message_handler_.get());
 }
