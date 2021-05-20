@@ -13,6 +13,20 @@
 
 namespace sand::flows
 {
+namespace
+{
+const char *to_string(DNLFlow::State state)
+{
+    switch (state)
+    {
+        case DNLFlow::State::IDLE: return "IDLE";
+        case DNLFlow::State::RUNNING: return "RUNNING";
+        case DNLFlow::State::STOPPING: return "STOPPING";
+        default: return "INVALID_STATE";
+    }
+}
+}  // namespace
+
 DNLFlowImpl::DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
     std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
     std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
@@ -23,7 +37,7 @@ DNLFlowImpl::DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> proto
     , executer_ {std::move(executer)}
     , io_executer_ {std::move(io_executer)}
     , sync_timer_ {io_executer_}
-    , started_ {false}
+    , state_ {State::IDLE}
     , sync_period_ms_ {sync_period_ms}
 {
     inbound_request_dispatcher_->set_callback<protocol::PullMessage>([this](auto &&p1, auto &&p2) {
@@ -66,13 +80,18 @@ bool DNLFlowImpl::unregister_listener(std::shared_ptr<DNLFlowListener> listener)
 
 void DNLFlowImpl::start()
 {
-    if (!started_)
+    State state = state_;
+
+    if (state != State::IDLE)
     {
-        started_ = true;
-        sync_timer_.start(
-            std::chrono::milliseconds {sync_period_ms_}, [this] { handle_sync_timer_event(); },
-            false);
+        LOG(WARNING) << "DNLFlow cannot be started from state " << to_string(state);
+        return;
     }
+
+    sync_timer_.start(
+        std::chrono::milliseconds {sync_period_ms_}, [this] { handle_sync_timer_event(); }, false);
+
+    set_state(State::RUNNING);
 }
 
 void DNLFlowImpl::stop()
@@ -82,29 +101,55 @@ void DNLFlowImpl::stop()
 
 void DNLFlowImpl::stop_impl()
 {
-    if (started_)
+    State state = state_;
+
+    if (state != State::RUNNING)
     {
-        sync_timer_.stop();
-        started_ = false;
-
-        decltype(running_jobs_) runnings_jobs_copy;
-
-        {
-            std::lock_guard lock {mutex_};
-            runnings_jobs_copy = running_jobs_;
-        }
-
-        for (const auto &completion_token : runnings_jobs_copy)
-        {
-            completion_token.cancel();
-            completion_token.wait_for_completion();
-        }
+        LOG(WARNING) << "DNLFlow cannot be started from state " << to_string(state);
+        return;
     }
+
+    set_state(State::STOPPING);
+
+    sync_timer_.stop();
+
+    decltype(running_jobs_) runnings_jobs_copy;
+
+    {
+        std::lock_guard lock {mutex_};
+        runnings_jobs_copy = running_jobs_;
+    }
+
+    for (const auto &completion_token : runnings_jobs_copy)
+    {
+        completion_token.cancel();
+        completion_token.wait_for_completion();
+    }
+
+    if (!running_jobs_.empty())
+    {
+        LOG(ERROR) << "Some jobs are still running. This should not happen.";
+    }
+    nodes_.clear();
+    nodes_vector_.clear();
+    most_recent_events_.clear();
+
+    set_state(State::IDLE);
+}
+
+void DNLFlowImpl::set_state(State new_state)
+{
+    if (state_ == new_state)
+    {
+        return;
+    }
+    state_ = new_state;
+    listener_group_.notify(&DNLFlowListener::on_state_changed, new_state);
 }
 
 void DNLFlowImpl::handle_pull(network::IPv4Address from, const protocol::PullMessage &msg)
 {
-    if (!started_)
+    if (state_ != State::RUNNING)
     {
         LOG(INFO) << "DNLFlow not started. PULL message ignored.";
         return;
@@ -147,7 +192,7 @@ void DNLFlowImpl::handle_pull(network::IPv4Address from, const protocol::PullMes
 
 void DNLFlowImpl::handle_push(network::IPv4Address from, const protocol::PushMessage &msg)
 {
-    if (!started_)
+    if (state_ != State::RUNNING)
     {
         LOG(INFO) << "DNLFlow not started. PUSH message ignored.";
         return;
@@ -169,7 +214,7 @@ void DNLFlowImpl::handle_push(network::IPv4Address from, const protocol::PushMes
 
 void DNLFlowImpl::handle_ping(network::IPv4Address from, const protocol::PingMessage &msg)
 {
-    if (!started_)
+    if (state_ != State::RUNNING)
     {
         LOG(INFO) << "DNLFlow not started. PING message ignored.";
         return;
@@ -186,7 +231,7 @@ void DNLFlowImpl::handle_ping(network::IPv4Address from, const protocol::PingMes
 
 void DNLFlowImpl::handle_bye(network::IPv4Address from, const protocol::ByeMessage & /*msg*/)
 {
-    if (!started_)
+    if (state_ != State::RUNNING)
     {
         LOG(INFO) << "DNLFlow not started. BYE message ignored.";
         return;
@@ -200,7 +245,7 @@ void DNLFlowImpl::handle_bye(network::IPv4Address from, const protocol::ByeMessa
 
 void DNLFlowImpl::handle_dnl_sync(network::IPv4Address from, const protocol::DNLSyncMessage &msg)
 {
-    if (!started_)
+    if (state_ != State::RUNNING)
     {
         LOG(INFO) << "DNLFlow not started. DNLSYNC message ignored.";
         return;
@@ -281,10 +326,18 @@ void DNLFlowImpl::wait_for_reply_confirmation(std::future<bool> future, protocol
 
 void DNLFlowImpl::handle_sync_timer_event()
 {
-    if (!started_)
+    if (state_ != State::RUNNING)
     {
         LOG(INFO) << "DNLFlow not started. Timer event ignored.";
         return;
+    }
+
+    {
+        std::lock_guard lock {mutex_};
+        if (most_recent_events_.empty())
+        {
+            return;
+        }
     }
 
     add_job(executer_, [this](const utils::CompletionToken &) {
@@ -332,6 +385,7 @@ bool DNLFlowImpl::add_node(network::IPv4Address addr)
     {
         nodes_vector_.push_back(it->first);
         it->second = nodes_vector_.size() - 1;
+        listener_group_.notify(&DNLFlowListener::on_node_connected, addr);
         return true;
     }
     else
@@ -355,6 +409,8 @@ bool DNLFlowImpl::remove_node(network::IPv4Address addr)
     nodes_[last_idx_addr]              = idx;
     nodes_vector_.resize(last_idx);
     nodes_.erase(it);
+
+    listener_group_.notify(&DNLFlowListener::on_node_diconnected, addr);
 
     return true;
 }
@@ -436,7 +492,7 @@ void DNLFlowImpl::pick_nodes_loop(const std::shared_ptr<PickNodesContext> &ctx)
 void DNLFlowImpl::add_job(
     const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job)
 {
-    if (!started_)
+    if (state_ != State::RUNNING)
     {
         return;
     }

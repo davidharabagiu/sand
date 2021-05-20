@@ -26,7 +26,7 @@ const char *to_string(PeerManagerFlow::State state)
         case PeerManagerFlow::State::RUNNING: return "RUNNING";
         case PeerManagerFlow::State::STOPPING: return "STOPPING";
         case PeerManagerFlow::State::ERROR: return "ERROR";
-        default: return "INVALID";
+        default: return "INVALID_STATE";
     }
 }
 

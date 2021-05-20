@@ -41,6 +41,7 @@ public:
     void stop() override;
 
 private:
+    void set_state(State new_state);
     void handle_pull(network::IPv4Address from, const protocol::PullMessage &msg);
     void handle_push(network::IPv4Address from, const protocol::PushMessage &msg);
     void handle_bye(network::IPv4Address from, const protocol::ByeMessage &msg);
@@ -78,7 +79,7 @@ private:
     utils::ListenerGroup<DNLFlowListener>                   listener_group_;
     utils::Random                                           rng_;
     std::mutex                                              mutex_;
-    std::atomic_bool                                        started_;
+    std::atomic<State>                                      state_;
     std::set<utils::CompletionToken>                        running_jobs_;
     int                                                     sync_period_ms_;
 };

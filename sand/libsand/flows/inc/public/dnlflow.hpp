@@ -11,6 +11,13 @@ class DNLFlowListener;
 class DNLFlow
 {
 public:
+    enum class State
+    {
+        IDLE,
+        RUNNING,
+        STOPPING
+    };
+
     virtual ~DNLFlow() = default;
 
     virtual bool register_listener(std::shared_ptr<DNLFlowListener> listener)   = 0;
