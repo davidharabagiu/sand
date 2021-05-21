@@ -50,7 +50,9 @@ enum class StatusCode : uint8_t
 {
     OK                     = 0,
     UNREACHABLE            = 1,
-    RESOURCE_NOT_AVAILABLE = 2
+    RESOURCE_NOT_AVAILABLE = 2,
+    DUPLICATION            = 3,
+    FOREIGN_DNL_ADDRESS    = 4
 };
 
 struct Message

@@ -103,3 +103,23 @@ TEST_F(DNLConfigTest, Empty_AllExcluded)
 
     EXPECT_TRUE(config.is_empty());
 }
+
+TEST_F(DNLConfigTest, GetAll)
+{
+    ON_CALL(*loader_, load()).WillByDefault(Return(dnl_node_list_));
+    DNLConfig config {std::move(loader_)};
+    ASSERT_THAT(config.get_all(), UnorderedElementsAreArray(dnl_node_list_));
+}
+
+TEST_F(DNLConfigTest, Contains)
+{
+    ON_CALL(*loader_, load()).WillByDefault(Return(dnl_node_list_));
+    DNLConfig config {std::move(loader_)};
+
+    for (IPv4Address node : dnl_node_list_)
+    {
+        EXPECT_TRUE(config.contains(node));
+    }
+
+    EXPECT_FALSE(config.contains(conversion::to_ipv4_address("10.0.0.254")));
+}

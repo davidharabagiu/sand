@@ -5,8 +5,14 @@
 
 #include <cstddef>
 #include <functional>
+#include <future>
+#include <memory>
 #include <type_traits>
 #include <utility>
+
+#include "address.hpp"
+#include "messages.hpp"
+#include "random.hpp"
 
 namespace testutils
 {
@@ -20,6 +26,10 @@ inline auto random_values(OutputIt dst, size_t count) -> std::enable_if_t<std::i
 }
 
 bool wait_for(const std::function<bool()> &predicate, unsigned timeout_ms = 0);
+sand::network::IPv4Address random_ip_address(sand::utils::Random &rng);
+auto                       make_basic_reply_generator(bool ok)
+    -> std::function<std::future<std::unique_ptr<sand::protocol::BasicReply>>(
+        sand::network::IPv4Address, std::unique_ptr<sand::protocol::Message>)>;
 }  // namespace testutils
 
 MATCHER_P(SmartPointerCompare, rhs, "Compares a smart pointer to a raw pointer")

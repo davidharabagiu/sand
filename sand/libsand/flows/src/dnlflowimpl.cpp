@@ -78,6 +78,11 @@ bool DNLFlowImpl::unregister_listener(std::shared_ptr<DNLFlowListener> listener)
     return listener_group_.remove(listener);
 }
 
+DNLFlow::State DNLFlowImpl::state() const
+{
+    return state_;
+}
+
 void DNLFlowImpl::start()
 {
     State state = state_;
@@ -88,8 +93,12 @@ void DNLFlowImpl::start()
         return;
     }
 
-    sync_timer_.start(
-        std::chrono::milliseconds {sync_period_ms_}, [this] { handle_sync_timer_event(); }, false);
+    if (sync_period_ms_ > 0)
+    {
+        sync_timer_.start(
+            std::chrono::milliseconds {sync_period_ms_}, [this] { handle_sync_timer_event(); },
+            false);
+    }
 
     set_state(State::RUNNING);
 }
@@ -199,14 +208,16 @@ void DNLFlowImpl::handle_push(network::IPv4Address from, const protocol::PushMes
     }
 
     add_job(executer_, [this, from, msg](const utils::CompletionToken &) {
+        bool success;
+
         {
             std::lock_guard lock {mutex_};
-            add_node(from);
+            success = add_node(from);
         }
 
         auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
         reply->request_id  = msg.request_id;
-        reply->status_code = protocol::StatusCode::OK;
+        reply->status_code = success ? protocol::StatusCode::OK : protocol::StatusCode::DUPLICATION;
         auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
         wait_for_reply_confirmation(std::move(future), msg.request_id);
     });
@@ -252,8 +263,23 @@ void DNLFlowImpl::handle_dnl_sync(network::IPv4Address from, const protocol::DNL
     }
 
     add_job(executer_, [this, from, msg](const utils::CompletionToken &) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
         {
-            std::lock_guard                lock {mutex_};
+            std::unique_lock lock {mutex_};
+            if (!dnl_config_->contains(from))
+            {
+                LOG(INFO) << "DNLSync message source not in DNL configuration. Ignoring message.";
+
+                lock.unlock();
+                reply->status_code = protocol::StatusCode::FOREIGN_DNL_ADDRESS;
+                auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
+                wait_for_reply_confirmation(std::move(future), msg.request_id);
+
+                return;
+            }
+
             std::vector<Event>             inversed_merged_events;
             std::set<network::IPv4Address> marked_nodes;
 
@@ -295,17 +321,20 @@ void DNLFlowImpl::handle_dnl_sync(network::IPv4Address from, const protocol::DNL
             {
                 if (evt.action == Event::ADD_ADDRESS)
                 {
-                    add_node(evt.address);
+                    add_node(evt.address, false);
                 }
                 else if (evt.action == Event::REMOVE_ADDRESS)
                 {
-                    remove_node(evt.address);
+                    remove_node(evt.address, false);
                 }
+            }
+
+            if (sync_period_ms_ <= 0)
+            {
+                most_recent_events_.clear();
             }
         }
 
-        auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-        reply->request_id  = msg.request_id;
         reply->status_code = protocol::StatusCode::OK;
         auto future        = protocol_message_handler_->send_reply(from, std::move(reply));
         wait_for_reply_confirmation(std::move(future), msg.request_id);
@@ -378,13 +407,20 @@ void DNLFlowImpl::handle_sync_timer_event()
     });
 }
 
-bool DNLFlowImpl::add_node(network::IPv4Address addr)
+bool DNLFlowImpl::add_node(network::IPv4Address addr, bool add_to_events)
 {
     auto [it, is_new] = nodes_.emplace(addr, 0);
     if (is_new)
     {
         nodes_vector_.push_back(it->first);
         it->second = nodes_vector_.size() - 1;
+
+        if (sync_period_ms_ > 0 && add_to_events)
+        {
+            most_recent_events_.push_back(
+                {std::chrono::system_clock::now(), addr, Event::ADD_ADDRESS});
+        }
+
         listener_group_.notify(&DNLFlowListener::on_node_connected, addr);
         return true;
     }
@@ -394,7 +430,7 @@ bool DNLFlowImpl::add_node(network::IPv4Address addr)
     }
 }
 
-bool DNLFlowImpl::remove_node(network::IPv4Address addr)
+bool DNLFlowImpl::remove_node(network::IPv4Address addr, bool add_to_events)
 {
     auto it = nodes_.find(addr);
     if (it == nodes_.end())
@@ -410,7 +446,13 @@ bool DNLFlowImpl::remove_node(network::IPv4Address addr)
     nodes_vector_.resize(last_idx);
     nodes_.erase(it);
 
-    listener_group_.notify(&DNLFlowListener::on_node_diconnected, addr);
+    if (sync_period_ms_ > 0 && add_to_events)
+    {
+        most_recent_events_.push_back(
+            {std::chrono::system_clock::now(), addr, Event::REMOVE_ADDRESS});
+    }
+
+    listener_group_.notify(&DNLFlowListener::on_node_disconnected, addr);
 
     return true;
 }
@@ -430,24 +472,25 @@ void DNLFlowImpl::pick_nodes_loop(const std::shared_ptr<PickNodesContext> &ctx)
 
     {
         std::lock_guard lock {mutex_};
-        size_t          total_nodes   = nodes_.size();
-        size_t          nodes_to_pick = std::min(ctx->count - ctx->result.size(), total_nodes);
+        size_t          total_nodes = nodes_.size();
+        size_t          nodes_to_pick =
+            std::min(ctx->count - ctx->result.size(), total_nodes - ctx->result.size());
 
         if (nodes_to_pick == 0)
         {
-            ctx->promise.set_value(ctx->result);
+            ctx->promise.set_value(
+                std::vector<network::IPv4Address>(ctx->result.cbegin(), ctx->result.cend()));
             return;
         }
 
         for (size_t i = 0; i != nodes_to_pick; ++i)
         {
-            bool picked;
+            network::IPv4Address pick;
             do
             {
-                picked =
-                    candidates.insert(nodes_vector_[rng_.next<size_t>(nodes_vector_.size() - 1)])
-                        .second;
-            } while (!picked);
+                pick = nodes_vector_[rng_.next<size_t>(nodes_vector_.size() - 1)];
+            } while (candidates.count(pick) != 0 || ctx->result.count(pick) != 0);
+            candidates.insert(pick);
         }
     }
 
@@ -473,7 +516,11 @@ void DNLFlowImpl::pick_nodes_loop(const std::shared_ptr<PickNodesContext> &ctx)
 
                 if (reply->status_code == protocol::StatusCode::OK)
                 {
-                    ctx->result.push_back(a);
+                    ctx->result.insert(a);
+                }
+                else
+                {
+                    remove_node(a);
                 }
             }
 
@@ -484,7 +531,8 @@ void DNLFlowImpl::pick_nodes_loop(const std::shared_ptr<PickNodesContext> &ctx)
             }
             else
             {
-                ctx->promise.set_value(ctx->result);
+                ctx->promise.set_value(
+                    std::vector<network::IPv4Address>(ctx->result.cbegin(), ctx->result.cend()));
             }
         });
 }

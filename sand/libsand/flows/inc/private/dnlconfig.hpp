@@ -24,6 +24,7 @@ public:
     [[nodiscard]] network::IPv4Address              random_pick();
     void                                            exclude(network::IPv4Address address);
     [[nodiscard]] bool                              is_empty() const;
+    [[nodiscard]] bool                              contains(network::IPv4Address address) const;
 
 private:
     std::vector<network::IPv4Address> pool_;

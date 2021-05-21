@@ -35,10 +35,11 @@ public:
         std::shared_ptr<utils::Executer> io_executer, int sync_period_ms);
     ~DNLFlowImpl() override;
 
-    bool register_listener(std::shared_ptr<DNLFlowListener> listener) override;
-    bool unregister_listener(std::shared_ptr<DNLFlowListener> listener) override;
-    void start() override;
-    void stop() override;
+    bool                register_listener(std::shared_ptr<DNLFlowListener> listener) override;
+    bool                unregister_listener(std::shared_ptr<DNLFlowListener> listener) override;
+    [[nodiscard]] State state() const override;
+    void                start() override;
+    void                stop() override;
 
 private:
     void set_state(State new_state);
@@ -49,15 +50,15 @@ private:
     void handle_dnl_sync(network::IPv4Address from, const protocol::DNLSyncMessage &msg);
     void wait_for_reply_confirmation(std::future<bool> future, protocol::RequestId msg_id);
     void handle_sync_timer_event();
-    bool add_node(network::IPv4Address addr);
-    bool remove_node(network::IPv4Address addr);
+    bool add_node(network::IPv4Address addr, bool add_to_events = true);
+    bool remove_node(network::IPv4Address addr, bool add_to_events = true);
     std::future<std::vector<network::IPv4Address>> pick_nodes(size_t count);
     void                                           stop_impl();
     void add_job(const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
 
     struct PickNodesContext
     {
-        std::vector<network::IPv4Address>               result;
+        std::set<network::IPv4Address>                  result;
         size_t                                          count;
         std::promise<std::vector<network::IPv4Address>> promise;
     };

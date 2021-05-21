@@ -53,4 +53,10 @@ std::vector<network::IPv4Address> DNLConfig::get_all() const
     std::lock_guard lock {mutex_};
     return pool_;
 }
+
+bool DNLConfig::contains(network::IPv4Address address) const
+{
+    std::lock_guard lock {mutex_};
+    return std::find(pool_.cbegin(), pool_.cend(), address) != pool_.cend();
+}
 }  // namespace sand::flows

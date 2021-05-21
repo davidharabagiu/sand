@@ -20,10 +20,11 @@ public:
 
     virtual ~DNLFlow() = default;
 
-    virtual bool register_listener(std::shared_ptr<DNLFlowListener> listener)   = 0;
-    virtual bool unregister_listener(std::shared_ptr<DNLFlowListener> listener) = 0;
-    virtual void start()                                                        = 0;
-    virtual void stop()                                                         = 0;
+    virtual bool                register_listener(std::shared_ptr<DNLFlowListener> listener)   = 0;
+    virtual bool                unregister_listener(std::shared_ptr<DNLFlowListener> listener) = 0;
+    [[nodiscard]] virtual State state() const                                                  = 0;
+    virtual void                start()                                                        = 0;
+    virtual void                stop()                                                         = 0;
 };
 }  // namespace sand::flows
 
