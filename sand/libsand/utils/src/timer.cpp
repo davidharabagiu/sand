@@ -33,15 +33,15 @@ bool Timer::start(Period period, Callback &&callback, bool single_shot)
 
     completion_token_ =
         executer_->add_job([this, period, single_shot, callback = std::move(callback)](
-                               const CompletionToken & /*completion_token*/) {
+                               const CompletionToken &completion_token) {
             for (;;)
             {
                 std::this_thread::sleep_until(next_trigger_moment_);
-                next_trigger_moment_ = Clock::now() + period;
-                if (completion_token_->is_cancelled())
+                if (completion_token.is_cancelled())
                 {
                     break;
                 }
+                next_trigger_moment_ = Clock::now() + period;
                 callback();
                 if (single_shot)
                 {
@@ -63,8 +63,8 @@ bool Timer::stop()
     }
 
     completion_token_->cancel();
-    completion_token_->wait_for_completion();
-    completion_token_.reset();
+    // completion_token_->wait_for_completion();
+    // completion_token_.reset();
 
     return true;
 }

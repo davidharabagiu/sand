@@ -52,7 +52,8 @@ enum class StatusCode : uint8_t
     UNREACHABLE            = 1,
     RESOURCE_NOT_AVAILABLE = 2,
     DUPLICATION            = 3,
-    FOREIGN_DNL_ADDRESS    = 4
+    FOREIGN_DNL_ADDRESS    = 4,
+    CANNOT_FORWARD         = 5
 };
 
 struct Message
