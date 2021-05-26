@@ -251,7 +251,7 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
                         {
                             LOG(ERROR) << "No peer is responding.";
                             std::lock_guard lock {mutex_};
-                            ongoing_searches_.erase(search_handle);
+                            ongoing_searches_.erase(search_handle.data()->search_id);
                             ongoing_searches_files_.erase(search_handle.data()->file_hash);
                             listener_group_.notify(&FileLocatorFlowListener::on_file_search_error,
                                 search_handle, "No peer responded, please try again");
@@ -262,8 +262,9 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
 
     lock.lock();
 
-    auto [it, ok] = ongoing_searches_.emplace(search_handle,
-        search_timeout_sec_ > 0 ? std::make_unique<utils::Timer>(io_executer_) : nullptr);
+    auto [it, ok] = ongoing_searches_.emplace(search_handle.data()->search_id,
+        OngoingSearch {search_handle,
+            search_timeout_sec_ > 0 ? std::make_unique<utils::Timer>(io_executer_) : nullptr});
     if (!ok)
     {
         completion_token.cancel();
@@ -283,13 +284,13 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
     if (search_timeout_sec_ > 0)
     {
         // Set search timeout
-        it->second->start(
+        it->second.expire_timer->start(
             std::chrono::seconds(search_timeout_sec_),
             [this, search_handle] {
                 add_job(executer_, [this, search_handle](const auto & /*completion_token*/) {
                     LOG(INFO) << "Search timeout reached. Abandoning operation.";
                     std::lock_guard lock {mutex_};
-                    ongoing_searches_.erase(search_handle);
+                    ongoing_searches_.erase(search_handle.data()->search_id);
                     ongoing_searches_files_.erase(search_handle.data()->file_hash);
                     listener_group_.notify(
                         &FileLocatorFlowListener::on_file_search_error, search_handle, "Timeout");
@@ -303,7 +304,7 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
 
 bool FileLocatorFlowImpl::cancel_search(const SearchHandle &search_handle)
 {
-    bool ok = ongoing_searches_.erase(search_handle) != 0;
+    bool ok = ongoing_searches_.erase(search_handle.data()->search_id) != 0;
     ok &= ongoing_searches_files_.erase(search_handle.data()->file_hash) != 0;
     return ok;
 }
@@ -330,13 +331,29 @@ void FileLocatorFlowImpl::handle_search(
             return;
         }
 
-        if (file_storage_->contains(file_hash))
+        bool forward = true;
+
         {
-            create_offer(from, msg);
+            std::lock_guard lock {mutex_};
+            if (file_storage_->contains(file_hash))
+            {
+                forward = false;
+            }
+        }
+
+        if (forward)
+        {
+            forward_search_messsage(from, msg);
         }
         else
         {
-            forward_search_request(from, msg);
+            auto sh_data       = std::make_shared<SearchHandleImpl>();
+            sh_data->file_hash = file_hash;
+            sh_data->search_id = msg.search_id;
+
+            std::lock_guard lock {mutex_};
+            listener_group_.notify(
+                &FileLocatorFlowListener::on_file_wanted, SearchHandle {sh_data});
         }
     });
 }
@@ -344,18 +361,52 @@ void FileLocatorFlowImpl::handle_search(
 void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol::OfferMessage &msg)
 {
     add_job(executer_, [this, from, msg](const auto & /*completion_token*/) {
-        std::lock_guard lock {mutex_};
+        bool         forward = true;
+        SearchHandle search_handle;
 
-        if (std::find_if(ongoing_searches_.cbegin(), ongoing_searches_.cend(),
-                [search_id = msg.search_id](const auto &kv) {
-                    return kv.first.data()->search_id == search_id;
-                }) != ongoing_searches_.cend())
         {
-            // We got a result for search
+            std::lock_guard lock {mutex_};
+            auto            it = ongoing_searches_.find(msg.search_id);
+            if (it != ongoing_searches_.end())
+            {
+                forward                        = false;
+                search_handle                  = it->second.search_handle.clone();
+                search_handle.data()->offer_id = msg.offer_id;
+
+                {
+                    auto [it2, ok] = received_offers_.emplace(
+                        msg.offer_id, ReceivedOffer {msg.search_id, from,
+                                          std::make_unique<utils::Timer>(io_executer_)});
+
+                    if (!ok)
+                    {
+                        LOG(WARNING) << "Route entry duplication";
+                    }
+                    else
+                    {
+                        it2->second.expire_timer->start(
+                            std::chrono::seconds(routing_table_entry_expiration_time_sec_),
+                            [this, offer_id = msg.offer_id] {
+                                add_job(
+                                    executer_, [this, offer_id](const auto & /*completion_token*/) {
+                                        std::lock_guard lock {mutex_};
+                                        received_offers_.erase(offer_id);
+                                    });
+                            },
+                            true);
+                    }
+                }
+            }
+        }
+
+        if (forward)
+        {
+            forward_offer_message(from, msg);
         }
         else
         {
-            // Forward message
+            std::lock_guard lock {mutex_};
+            listener_group_.notify(&FileLocatorFlowListener::on_file_found, search_handle);
         }
     });
 }
@@ -366,8 +417,33 @@ void FileLocatorFlowImpl::handle_uncache(
 }
 
 void FileLocatorFlowImpl::handle_confirm_transfer(
-    network::IPv4Address /*from*/, const protocol::ConfirmTransferMessage & /*msg*/)
+    network::IPv4Address from, const protocol::ConfirmTransferMessage &msg)
 {
+    add_job(executer_, [this, from, msg](const auto & /*completion_token*/) {
+        bool         forward = true;
+        SearchHandle search_handle;
+
+        {
+            std::lock_guard lock {mutex_};
+            auto            it = sent_offers_.find(msg.offer_id);
+            if (it != ongoing_searches_.end())
+            {
+                forward       = false;
+                search_handle = it->second.search_handle;
+                sent_offers_.erase(it);
+            }
+        }
+
+        if (forward)
+        {
+            forward_confirm_transfer_message(from, msg);
+        }
+        else
+        {
+            std::lock_guard lock {mutex_};
+            listener_group_.notify(&FileLocatorFlowListener::on_transfer_confirmed, search_handle);
+        }
+    });
 }
 
 void FileLocatorFlowImpl::wait_for_reply_confirmation(
@@ -402,7 +478,7 @@ utils::CompletionToken FileLocatorFlowImpl::add_job(
                 .first;
 }
 
-void FileLocatorFlowImpl::forward_search_request(
+void FileLocatorFlowImpl::forward_search_messsage(
     network::IPv4Address from, const protocol::SearchMessage &msg)
 {
     // Find some peers
@@ -419,16 +495,22 @@ void FileLocatorFlowImpl::forward_search_request(
 
             add_job(executer_, [this, from, msg, peers_list_future](
                                    const auto & /*completion_token*/) {
+                auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+                reply->request_id  = msg.request_id;
+                reply->status_code = protocol::StatusCode::OK;
+
                 auto peers = peers_list_future->get();
                 if (peers.empty())
                 {
                     LOG(ERROR) << "No peers found";
-                    auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-                    reply->request_id  = msg.request_id;
                     reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
-                    wait_for_reply_confirmation(
-                        protocol_message_handler_->send_reply(from, std::move(reply)),
-                        msg.request_id);
+                }
+
+                wait_for_reply_confirmation(
+                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+
+                if (peers.empty())
+                {
                     return;
                 }
 
@@ -447,9 +529,7 @@ void FileLocatorFlowImpl::forward_search_request(
                 add_job(
                     io_executer_, [this, from, msg, reply_futures](const auto &completion_token) {
                         // Check replies
-                        bool                              success = false;
-                        std::vector<network::IPv4Address> to_nodes;
-                        to_nodes.reserve(reply_futures->size());
+                        bool success = false;
 
                         for (auto &[a, f] : *reply_futures)
                         {
@@ -462,33 +542,22 @@ void FileLocatorFlowImpl::forward_search_request(
                             if (reply->status_code == protocol::StatusCode::OK)
                             {
                                 success = true;
-                                to_nodes.push_back(a);
-                            }
-                            else
-                            {
-                                LOG(INFO) << "Peer " << network::conversion::to_string(a)
-                                          << " is not responding";
-                                peer_address_provider_->remove_peer(a);
                             }
                         }
-
-                        auto reply = std::make_unique<protocol::BasicReply>(msg.message_code);
-                        reply->request_id = msg.request_id;
 
                         if (success)
                         {
                             std::lock_guard lock {mutex_};
 
                             auto [it, ok] = routing_table_.emplace(msg.search_id,
-                                RouteNode {from, std::move(to_nodes), utils::Timer {io_executer_}});
+                                RouteNode {from, std::make_unique<utils::Timer>(io_executer_)});
                             if (!ok)
                             {
                                 LOG(WARNING) << "Route entry duplication";
-                                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
                             }
                             else
                             {
-                                it->second.timeout_timer.start(
+                                it->second.expire_timer->start(
                                     std::chrono::seconds(routing_table_entry_expiration_time_sec_),
                                     [this, search_id = msg.search_id] {
                                         add_job(executer_,
@@ -498,25 +567,112 @@ void FileLocatorFlowImpl::forward_search_request(
                                             });
                                     },
                                     true);
-                                reply->status_code = protocol::StatusCode::OK;
                             }
                         }
-                        else
-                        {
-                            LOG(ERROR) << "No peer is responding";
-                            reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
-                        }
-
-                        wait_for_reply_confirmation(
-                            protocol_message_handler_->send_reply(from, std::move(reply)),
-                            msg.request_id);
                     });
             });
         });
 }
 
-void FileLocatorFlowImpl::create_offer(
-    network::IPv4Address /*from*/, const protocol::SearchMessage & /*msg*/)
+void FileLocatorFlowImpl::forward_offer_message(
+    network::IPv4Address from, const protocol::OfferMessage &msg)
 {
+    network::IPv4Address forward_to = 0;
+    auto                 reply      = std::make_unique<protocol::BasicReply>(msg.message_code);
+    reply->request_id               = msg.request_id;
+    reply->status_code              = protocol::StatusCode::OK;
+
+    do
+    {
+        std::lock_guard lock {mutex_};
+
+        auto it = routing_table_.find(msg.search_id);
+        if (it == routing_table_.end())
+        {
+            LOG(INFO) << "Routing table entry not found for search_id " << msg.search_id;
+            reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+            break;
+        }
+
+        forward_to = it->second.from;
+    } while (false);
+
+    wait_for_reply_confirmation(
+        protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+
+    if (forward_to == 0)
+    {
+        return;
+    }
+
+    {
+        std::lock_guard lock {mutex_};
+        auto [it, ok] = reverse_routing_table_.emplace(
+            msg.offer_id, RouteNode {from, std::make_unique<utils::Timer>(io_executer_)});
+        if (!ok)
+        {
+            LOG(WARNING) << "Reverse route entry duplication";
+            return;
+        }
+
+        it->second.expire_timer->start(
+            std::chrono::seconds(routing_table_entry_expiration_time_sec_),
+            [this, offer_id = msg.offer_id] {
+                add_job(executer_, [this, offer_id](const auto & /*completion_token*/) {
+                    std::lock_guard lock {mutex_};
+                    reverse_routing_table_.erase(offer_id);
+                });
+            },
+            true);
+    }
+
+    auto new_msg        = std::make_unique<protocol::OfferMessage>(msg);
+    new_msg->request_id = rng_.next<protocol::RequestId>();
+
+    auto offer_future = protocol_message_handler_->send(forward_to, std::move(new_msg));
+    add_job(io_executer_,
+        [offer_future = std::make_shared<decltype(offer_future)>(std::move(offer_future))](
+            const auto & /*completion_token*/) { offer_future->wait(); });
+}
+
+void FileLocatorFlowImpl::forward_confirm_transfer_message(
+    network::IPv4Address from, const protocol::ConfirmTransferMessage &msg)
+{
+    network::IPv4Address forward_to = 0;
+    auto                 reply      = std::make_unique<protocol::BasicReply>(msg.message_code);
+    reply->request_id               = msg.request_id;
+    reply->status_code              = protocol::StatusCode::OK;
+
+    do
+    {
+        std::lock_guard lock {mutex_};
+
+        auto it = reverse_routing_table_.find(msg.offer_id);
+        if (it == routing_table_.end())
+        {
+            LOG(INFO) << "Reverse routing table entry not found for offer_id " << msg.offer_id;
+            reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+            break;
+        }
+
+        forward_to = it->second.from;
+
+        reverse_routing_table_.erase(it);
+    } while (false);
+
+    wait_for_reply_confirmation(
+        protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+
+    if (forward_to == 0)
+    {
+        return;
+    }
+
+    auto new_msg        = std::make_unique<protocol::ConfirmTransferMessage>(msg);
+    new_msg->request_id = rng_.next<protocol::RequestId>();
+
+    auto future = protocol_message_handler_->send(forward_to, std::move(new_msg));
+    add_job(io_executer_, [future = std::make_shared<decltype(future)>(std::move(future))](
+                              const auto & /*completion_token*/) { future->wait(); });
 }
 }  // namespace sand::flows

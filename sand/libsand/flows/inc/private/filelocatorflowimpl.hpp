@@ -62,9 +62,21 @@ public:
 private:
     struct RouteNode
     {
-        network::IPv4Address              from;
-        std::vector<network::IPv4Address> to;
-        utils::Timer                      timeout_timer;
+        network::IPv4Address          from;
+        std::unique_ptr<utils::Timer> expire_timer;
+    };
+
+    struct OngoingSearch
+    {
+        SearchHandle                  search_handle;
+        std::unique_ptr<utils::Timer> expire_timer;
+    };
+
+    struct ReceivedOffer
+    {
+        protocol::SearchId            search_id;
+        network::IPv4Address          from;
+        std::unique_ptr<utils::Timer> expire_timer;
     };
 
     void set_state(State new_state);
@@ -78,12 +90,17 @@ private:
     utils::CompletionToken add_job(
         const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
 
-    void forward_search_request(network::IPv4Address from, const protocol::SearchMessage &msg);
-    void create_offer(network::IPv4Address from, const protocol::SearchMessage &msg);
+    void forward_search_messsage(network::IPv4Address from, const protocol::SearchMessage &msg);
+    void forward_offer_message(network::IPv4Address from, const protocol::OfferMessage &msg);
+    void forward_confirm_transfer_message(
+        network::IPv4Address from, const protocol::ConfirmTransferMessage &msg);
 
-    std::map<SearchHandle, std::unique_ptr<utils::Timer>> ongoing_searches_;
-    std::set<std::string>                                 ongoing_searches_files_;
-    std::map<protocol::SearchId, RouteNode>               routing_table_;
+    std::map<protocol::SearchId, OngoingSearch> ongoing_searches_;
+    std::set<std::string>                       ongoing_searches_files_;
+    std::map<protocol::OfferId, OngoingSearch>  sent_offers_;
+    std::map<protocol::OfferId, ReceivedOffer>  received_offers_;
+    std::map<protocol::SearchId, RouteNode>     routing_table_;
+    std::map<protocol::OfferId, RouteNode>      reverse_routing_table_;
 
     const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
     const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;

@@ -11,6 +11,7 @@ struct SearchHandleImpl
 {
     std::string        file_hash;
     protocol::SearchId search_id;
+    protocol::OfferId  offer_id;
 };
 }  // namespace sand::flows
 

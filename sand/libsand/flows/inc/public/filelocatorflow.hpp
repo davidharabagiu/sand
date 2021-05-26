@@ -29,6 +29,7 @@ public:
     [[nodiscard]] virtual State        state() const                                    = 0;
     [[nodiscard]] virtual SearchHandle search(const std::string &file_hash)             = 0;
     virtual bool                       cancel_search(const SearchHandle &search_handle) = 0;
+    virtual bool                       send_offer(const SearchHandle &search_handle)    = 0;
 };
 }  // namespace sand::flows
 

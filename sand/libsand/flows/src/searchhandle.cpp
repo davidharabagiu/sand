@@ -33,4 +33,10 @@ bool operator<(const SearchHandle &lhs, const SearchHandle &rhs)
 {
     return lhs.data_ < rhs.data_;
 }
+
+SearchHandle SearchHandle::clone() const
+{
+    auto data_clone = std::make_shared<SearchHandleImpl>(*data_);
+    return SearchHandle {data_clone};
+}
 }  // namespace sand::flows

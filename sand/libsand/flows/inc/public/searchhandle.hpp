@@ -14,6 +14,7 @@ public:
     [[nodiscard]] bool                                    is_valid() const;
     [[nodiscard]] std::shared_ptr<SearchHandleImpl>       data();
     [[nodiscard]] std::shared_ptr<const SearchHandleImpl> data() const;
+    [[nodiscard]] SearchHandle                            clone() const;
 
 private:
     std::shared_ptr<SearchHandleImpl> data_;
