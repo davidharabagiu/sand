@@ -5,6 +5,7 @@
 #include <string>
 
 #include "searchhandle.hpp"
+#include "transferhandle.hpp"
 
 namespace sand::flows
 {
@@ -22,14 +23,16 @@ public:
 
     virtual ~FileLocatorFlow() = default;
 
-    virtual void start()                                                                = 0;
-    virtual void stop()                                                                 = 0;
-    virtual bool register_listener(std::shared_ptr<FileLocatorFlowListener> listener)   = 0;
-    virtual bool unregister_listener(std::shared_ptr<FileLocatorFlowListener> listener) = 0;
-    [[nodiscard]] virtual State        state() const                                    = 0;
-    [[nodiscard]] virtual SearchHandle search(const std::string &file_hash)             = 0;
-    virtual bool                       cancel_search(const SearchHandle &search_handle) = 0;
-    virtual bool                       send_offer(const SearchHandle &search_handle)    = 0;
+    virtual void start()                                                                       = 0;
+    virtual void stop()                                                                        = 0;
+    virtual bool register_listener(std::shared_ptr<FileLocatorFlowListener> listener)          = 0;
+    virtual bool unregister_listener(std::shared_ptr<FileLocatorFlowListener> listener)        = 0;
+    [[nodiscard]] virtual State        state() const                                           = 0;
+    [[nodiscard]] virtual SearchHandle search(const std::string &file_hash)                    = 0;
+    virtual bool                       cancel_search(const SearchHandle &search_handle)        = 0;
+    virtual bool                       send_offer(const TransferHandle &transfer_handle)       = 0;
+    virtual bool                       cancel_offer(const TransferHandle &transfer_handle)     = 0;
+    virtual bool                       confirm_transfer(const TransferHandle &transfer_handle) = 0;
 };
 }  // namespace sand::flows
 

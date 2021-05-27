@@ -11,6 +11,20 @@ class SearchHandle
 {
 public:
     explicit SearchHandle(std::shared_ptr<SearchHandleImpl> data = nullptr);
+    SearchHandle(const SearchHandle &) = default;
+    SearchHandle &operator=(const SearchHandle &) = default;
+
+    SearchHandle(SearchHandle &&other) noexcept
+        : data_ {std::move(other.data_)}
+    {
+    }
+
+    SearchHandle &operator=(SearchHandle &&rhs) noexcept
+    {
+        data_ = std::move(rhs.data_);
+        return *this;
+    }
+
     [[nodiscard]] bool                                    is_valid() const;
     [[nodiscard]] std::shared_ptr<SearchHandleImpl>       data();
     [[nodiscard]] std::shared_ptr<const SearchHandleImpl> data() const;
@@ -18,23 +32,7 @@ public:
 
 private:
     std::shared_ptr<SearchHandleImpl> data_;
-
-    friend struct std::hash<SearchHandle>;
-    friend bool operator==(const SearchHandle &, const SearchHandle &);
-    friend bool operator<(const SearchHandle &, const SearchHandle &);
 };
 }  // namespace sand::flows
-
-namespace std
-{
-template<>
-struct hash<sand::flows::SearchHandle>
-{
-    std::size_t operator()(const sand::flows::SearchHandle &k)
-    {
-        return hash<decltype(k.data_)>()(k.data_);
-    }
-};
-}  // namespace std
 
 #endif  // SAND_FLOWS_SEARCHHANDLE_HPP_
