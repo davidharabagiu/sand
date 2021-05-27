@@ -84,8 +84,9 @@ private:
         std::tie(it, std::ignore) = timeouts_.emplace(std::make_shared<utils::Timer>(io_executer_));
         (*it)->start(std::chrono::duration_cast<utils::Timer::Period>(duration),
             [this, timer = std::weak_ptr<utils::Timer>(*it), func = std::move(func)] {
-                func();
-                add_job(io_executer_, [this, timer](const auto & /*completion_token*/) {
+                add_job(executer_, [this, timer, func](const auto & /*completion_token*/) {
+                    func();
+                    std::lock_guard lock {mutex_};
                     timeouts_.erase(timer.lock());
                 });
             });
@@ -96,15 +97,19 @@ private:
     void forward_confirm_transfer_message(
         network::IPv4Address from, const protocol::ConfirmTransferMessage &msg);
 
-    void add_offer_routing_table_entry(network::IPv4Address from, protocol::SearchId search_id);
+    void add_offer_routing_table_entry(
+        network::IPv4Address from, protocol::SearchId search_id, const std::string &file_hash);
     void add_confirm_tx_routing_table_entry(network::IPv4Address from, protocol::OfferId offer_id);
 
     std::map<protocol::SearchId, SearchHandle>  ongoing_searches_;
     std::set<std::string>                       ongoing_searches_files_;
     std::map<protocol::OfferId, TransferHandle> sent_offers_;
 
-    std::map<protocol::SearchId, network::IPv4Address> offer_routing_table_;
-    std::map<protocol::OfferId, network::IPv4Address>  confirm_tx_routing_table_;
+    std::map<protocol::SearchId, std::tuple<network::IPv4Address, std::string>>
+                                                      offer_routing_table_;
+    std::map<protocol::OfferId, network::IPv4Address> confirm_tx_routing_table_;
+
+    std::map<std::string, std::set<network::IPv4Address>> search_cache_;
 
     std::set<std::shared_ptr<utils::Timer>> timeouts_;
 

@@ -293,7 +293,7 @@ bool FileLocatorFlowImpl::send_offer(const TransferHandle &transfer_handle)
             return false;
         }
 
-        to = it->second;
+        to = std::get<0>(it->second);
         offer_routing_table_.erase(it);
     }
 
@@ -440,7 +440,13 @@ void FileLocatorFlowImpl::handle_search(
         }
         else
         {
-            add_offer_routing_table_entry(from, msg.search_id);
+            add_offer_routing_table_entry(from, msg.search_id, file_hash);
+
+            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+            reply->request_id  = msg.request_id;
+            reply->status_code = protocol::StatusCode::OK;
+            wait_for_reply_confirmation(
+                protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
 
             std::lock_guard lock {mutex_};
             listener_group_.notify(&FileLocatorFlowListener::on_file_wanted,
@@ -456,6 +462,10 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
         bool                                  forward = true;
         decltype(ongoing_searches_)::iterator ongoing_search_it;
 
+        auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id  = msg.request_id;
+        reply->status_code = protocol::StatusCode::OK;
+
         {
             std::lock_guard lock {mutex_};
             ongoing_search_it = ongoing_searches_.find(msg.search_id);
@@ -463,6 +473,19 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
             {
                 forward = false;
             }
+
+            auto routing_table_it = offer_routing_table_.find(msg.search_id);
+            if (routing_table_it == offer_routing_table_.end())
+            {
+                LOG(INFO) << "Routing table entry not found for search_id " << msg.search_id;
+                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+                wait_for_reply_confirmation(
+                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+                return;
+            }
+
+            std::string file_hash = std::get<1>(routing_table_it->second);
+            search_cache_[file_hash].emplace(from);
         }
 
         if (forward)
@@ -483,6 +506,9 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
             add_confirm_tx_routing_table_entry(from, msg.offer_id);
 
             {
+                wait_for_reply_confirmation(
+                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+
                 std::lock_guard lock {mutex_};
                 offer_routing_table_.erase(msg.search_id);
 
@@ -500,8 +526,80 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
 }
 
 void FileLocatorFlowImpl::handle_uncache(
-    network::IPv4Address /*from*/, const protocol::UncacheMessage & /*msg*/)
+    network::IPv4Address from, const protocol::UncacheMessage &msg)
 {
+    add_job(executer_, [this, from, msg](const auto & /*completion_token*/) {
+        {
+            std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
+            if (file_hash.empty())
+            {
+                LOG(WARNING) << "Cannot decode file hash";
+                return;
+            }
+
+            std::lock_guard lock {mutex_};
+
+            auto it1 = search_cache_.find(file_hash);
+            if (it1 == search_cache_.end())
+            {
+                LOG(INFO) << "Uncache chain end for file " << file_hash;
+                return;
+            }
+
+            auto it2 = it1->second.find(from);
+            if (it2 == it1->second.end())
+            {
+                LOG(INFO) << "Uncache chain end for file " << file_hash;
+                return;
+            }
+
+            it1->second.erase(it2);
+            if (it1->second.empty())
+            {
+                search_cache_.erase(it1);
+            }
+        }
+
+        // Propagate to all peers
+        auto peers_list_future =
+            peer_address_provider_->get_peers(peer_address_provider_->get_peers_count());
+        add_job(io_executer_, [this, msg,
+                                  peers_list_future = std::make_shared<decltype(peers_list_future)>(
+                                      std::move(peers_list_future))](const auto &completion_token) {
+            peers_list_future->wait();
+            if (completion_token.is_cancelled())
+            {
+                return;
+            }
+
+            add_job(executer_, [this, msg, peers_list_future](const auto & /*completion_token*/) {
+                auto peers = peers_list_future->get();
+                if (peers.empty())
+                {
+                    return;
+                }
+
+                // Send Uncache message
+                auto reply_futures = std::make_shared<std::vector<std::pair<network::IPv4Address,
+                    std::future<std::unique_ptr<protocol::BasicReply>>>>>();
+                reply_futures->reserve(peers.size());
+                for (auto peer : peers)
+                {
+                    auto unique_msg        = std::make_unique<protocol::UncacheMessage>(msg);
+                    unique_msg->request_id = rng_.next<protocol::RequestId>();
+                    reply_futures->emplace_back(
+                        peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
+                }
+
+                add_job(io_executer_, [reply_futures](const auto & /*completion_token*/) {
+                    for (auto &[a, f] : *reply_futures)
+                    {
+                        f.wait();
+                    }
+                });
+            });
+        });
+    });
 }
 
 void FileLocatorFlowImpl::handle_confirm_transfer(
@@ -625,37 +723,37 @@ void FileLocatorFlowImpl::forward_search_messsage(
                         peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
                 }
 
-                add_job(
-                    io_executer_, [this, from, msg, reply_futures](const auto &completion_token) {
-                        // Check replies
-                        bool success = false;
+                add_job(io_executer_, [this, from, msg, reply_futures](
+                                          const auto &completion_token) {
+                    // Check replies
+                    bool success = false;
 
-                        for (auto &[a, f] : *reply_futures)
+                    for (auto &[a, f] : *reply_futures)
+                    {
+                        auto reply = f.get();
+                        if (completion_token.is_cancelled())
                         {
-                            auto reply = f.get();
-                            if (completion_token.is_cancelled())
-                            {
-                                return;
-                            }
-
-                            if (reply->status_code == protocol::StatusCode::OK)
-                            {
-                                success = true;
-                            }
+                            return;
                         }
 
-                        if (success)
+                        if (reply->status_code == protocol::StatusCode::OK)
                         {
-                            add_job(executer_, [this, search_id = msg.search_id, from](
-                                                   const auto & /*completion_token*/) {
-                                add_offer_routing_table_entry(from, search_id);
-                            });
+                            success = true;
                         }
-                        else
-                        {
-                            LOG(WARNING) << "Could not forward Search message";
-                        }
-                    });
+                    }
+
+                    if (success)
+                    {
+                        add_job(executer_, [this, msg, from](const auto & /*completion_token*/) {
+                            add_offer_routing_table_entry(from, msg.search_id,
+                                file_hash_calculator_->encode(msg.file_hash.data()));
+                        });
+                    }
+                    else
+                    {
+                        LOG(WARNING) << "Could not forward Search message";
+                    }
+                });
             });
         });
 }
@@ -681,9 +779,12 @@ void FileLocatorFlowImpl::forward_offer_message(
             return;
         }
 
-        forward_to = it->second;
+        forward_to = std::get<0>(it->second);
         offer_routing_table_.erase(it);
     }
+
+    wait_for_reply_confirmation(
+        protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
 
     auto new_msg        = std::make_unique<protocol::OfferMessage>(msg);
     new_msg->request_id = rng_.next<protocol::RequestId>();
@@ -736,6 +837,9 @@ void FileLocatorFlowImpl::forward_confirm_transfer_message(
         confirm_tx_routing_table_.erase(it);
     }
 
+    wait_for_reply_confirmation(
+        protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+
     auto new_msg        = std::make_unique<protocol::ConfirmTransferMessage>(msg);
     new_msg->request_id = rng_.next<protocol::RequestId>();
 
@@ -756,11 +860,11 @@ void FileLocatorFlowImpl::forward_confirm_transfer_message(
 }
 
 void FileLocatorFlowImpl::add_offer_routing_table_entry(
-    network::IPv4Address from, protocol::SearchId search_id)
+    network::IPv4Address from, protocol::SearchId search_id, const std::string &file_hash)
 {
     std::lock_guard lock {mutex_};
 
-    if (!offer_routing_table_.emplace(search_id, from).second)
+    if (!offer_routing_table_.emplace(search_id, std::make_tuple(from, file_hash)).second)
     {
         return;
     }
