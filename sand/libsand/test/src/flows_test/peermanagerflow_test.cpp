@@ -671,10 +671,10 @@ TEST_F(PeerManagerFlowTest, HandlePull)
             .WillByDefault(
                 [](...) { return std::async(std::launch::deferred, [] { return true; }); });
         inbound_request_dispatcher_->on_message_received(peers[i], push_messages[i]);
-    }
 
-    // Process all messages
-    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+        // Process all messages
+        std::this_thread::sleep_for(std::chrono::milliseconds {25});
+    }
 
     ON_CALL(*protocol_message_handler_,
         send(AnyOfArray(peers),

@@ -261,6 +261,12 @@ std::future<std::vector<network::IPv4Address>> PeerManagerFlowImpl::get_peers(in
     return future;
 }
 
+int PeerManagerFlowImpl::get_peers_count() const
+{
+    std::lock_guard lock {mutex_};
+    return static_cast<int>(peers_.size());
+}
+
 void PeerManagerFlowImpl::remove_peer(network::IPv4Address addr)
 {
     if (state_ != State::RUNNING)

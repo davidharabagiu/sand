@@ -63,6 +63,7 @@ bool Timer::stop()
     }
 
     completion_token_->cancel();
+    completion_token_.reset();
     // completion_token_->wait_for_completion();
     // completion_token_.reset();
 

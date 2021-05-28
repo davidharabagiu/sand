@@ -40,6 +40,7 @@ public:
     ~PeerManagerFlowImpl() override;
 
     std::future<std::vector<network::IPv4Address>> get_peers(int count) override;
+    int                                            get_peers_count() const override;
     void                                           remove_peer(network::IPv4Address addr) override;
     void                                           start() override;
     void                                           stop() override;
@@ -86,7 +87,7 @@ private:
     std::set<utils::CompletionToken>                        running_jobs_;
     std::atomic<State>                                      state_;
     utils::ListenerGroup<PeerManagerFlowListener>           listener_group_;
-    std::mutex                                              mutex_;
+    mutable std::mutex                                      mutex_;
 };
 }  // namespace sand::flows
 
