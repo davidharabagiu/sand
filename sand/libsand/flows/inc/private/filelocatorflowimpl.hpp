@@ -65,6 +65,8 @@ public:
     bool                       confirm_transfer(const TransferHandle &transfer_handle) override;
 
 private:
+    void search_loop(const protocol::SearchMessage &msg, const SearchHandle &search_handle);
+
     void set_state(State new_state);
     void handle_search(network::IPv4Address from, const protocol::SearchMessage &msg);
     void handle_offer(network::IPv4Address from, const protocol::OfferMessage &msg);
@@ -93,6 +95,7 @@ private:
     }
 
     void forward_search_messsage(network::IPv4Address from, const protocol::SearchMessage &msg);
+    void forward_search_message_loop(network::IPv4Address from, const protocol::SearchMessage &msg);
     void forward_offer_message(network::IPv4Address from, const protocol::OfferMessage &msg);
     void forward_confirm_transfer_message(
         network::IPv4Address from, const protocol::ConfirmTransferMessage &msg);

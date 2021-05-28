@@ -187,66 +187,7 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
     SearchHandle search_handle(
         std::make_shared<SearchHandleImpl>(file_hash, msg.search_id, public_key_));
 
-    // Find some peers
-    auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
-    auto completion_token =
-        add_job(io_executer_, [this, msg, search_handle,
-                                  peers_list_future = std::make_shared<decltype(peers_list_future)>(
-                                      std::move(peers_list_future))](const auto &completion_token) {
-            peers_list_future->wait();
-            if (completion_token.is_cancelled())
-            {
-                return;
-            }
-
-            add_job(executer_, [this, msg, search_handle, peers_list_future](
-                                   const auto & /*completion_token*/) {
-                auto peers = peers_list_future->get();
-                if (peers.empty())
-                {
-                    LOG(WARNING) << "No peers to perform search with";
-                    return;
-                }
-
-                // Send Search message
-                auto reply_futures = std::make_shared<std::vector<std::pair<network::IPv4Address,
-                    std::future<std::unique_ptr<protocol::BasicReply>>>>>();
-                reply_futures->reserve(peers.size());
-                for (auto peer : peers)
-                {
-                    auto unique_msg        = std::make_unique<protocol::SearchMessage>(msg);
-                    unique_msg->request_id = rng_.next<protocol::RequestId>();
-                    reply_futures->emplace_back(
-                        peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
-                }
-
-                add_job(io_executer_,
-                    [this, search_handle, reply_futures](const auto &completion_token) {
-                        // Check replies
-                        bool success = false;
-
-                        for (auto &[a, f] : *reply_futures)
-                        {
-                            auto reply = f.get();
-                            if (completion_token.is_cancelled())
-                            {
-                                return;
-                            }
-
-                            if (reply->status_code == protocol::StatusCode::OK)
-                            {
-                                success = true;
-                            }
-                        }
-
-                        if (!success)
-                        {
-                            LOG(WARNING) << "Search message propagation failed.";
-                            cancel_search(search_handle);
-                        }
-                    });
-            });
-        });
+    search_loop(msg, search_handle);
 
     {
         std::lock_guard lock {mutex_};
@@ -263,6 +204,121 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
     }
 
     return search_handle;
+}
+
+void FileLocatorFlowImpl::search_loop(
+    const protocol::SearchMessage &msg, const SearchHandle &search_handle)
+{
+    auto proceed_with_search = [this](const std::vector<network::IPv4Address> &peers,
+                                   const protocol::SearchMessage &             msg,
+                                   const SearchHandle &                        search_handle) {
+        // Send Search message
+        auto reply_futures = std::make_shared<std::vector<
+            std::pair<network::IPv4Address, std::future<std::unique_ptr<protocol::BasicReply>>>>>();
+        reply_futures->reserve(peers.size());
+        for (auto peer : peers)
+        {
+            auto unique_msg        = std::make_unique<protocol::SearchMessage>(msg);
+            unique_msg->request_id = rng_.next<protocol::RequestId>();
+            reply_futures->emplace_back(
+                peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
+        }
+
+        add_job(io_executer_, [this, search_handle, reply_futures](const auto &completion_token) {
+            // Check replies
+            bool success = false;
+
+            for (auto &[a, f] : *reply_futures)
+            {
+                auto reply = f.get();
+                if (completion_token.is_cancelled())
+                {
+                    return;
+                }
+
+                if (reply->status_code == protocol::StatusCode::OK)
+                {
+                    success = true;
+                }
+            }
+
+            if (!success)
+            {
+                LOG(WARNING) << "Search message propagation failed.";
+                cancel_search(search_handle);
+            }
+        });
+    };
+
+    std::lock_guard lock {mutex_};
+    auto            search_cache_it = search_cache_.find(search_handle.data()->file_hash);
+    if (search_cache_it == search_cache_.end() || search_cache_it->second.empty())
+    {
+        // Find some peers
+        auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
+
+        add_job(io_executer_, [this, proceed_with_search, msg, search_handle,
+                                  peers_list_future = std::make_shared<decltype(peers_list_future)>(
+                                      std::move(peers_list_future))](const auto &completion_token) {
+            peers_list_future->wait();
+            if (completion_token.is_cancelled())
+            {
+                return;
+            }
+
+            add_job(executer_, [proceed_with_search, msg, search_handle, peers_list_future](
+                                   const auto & /*completion_token*/) {
+                auto peers = peers_list_future->get();
+                if (peers.empty())
+                {
+                    LOG(WARNING) << "No peers to perform search with";
+                    return;
+                }
+
+                proceed_with_search(peers, msg, search_handle);
+            });
+        });
+    }
+    else
+    {
+        // Send to a random element from cache
+        std::vector<network::IPv4Address> cached_peers(
+            search_cache_it->second.cbegin(), search_cache_it->second.cend());
+
+        auto peer = cached_peers[rng_.next<size_t>(cached_peers.size() - 1)];
+
+        // Ping the chosen peer
+        auto ping        = std::make_unique<protocol::PingMessage>();
+        ping->request_id = rng_.next<protocol::RequestId>();
+
+        auto ping_future = protocol_message_handler_->send(peer, std::move(ping));
+        add_job(io_executer_, [this, proceed_with_search, peer, msg, search_handle,
+                                  ping_future = std::make_shared<decltype(ping_future)>(
+                                      std::move(ping_future))](const auto &completion_token) {
+            ping_future->wait();
+            if (completion_token.is_cancelled())
+            {
+                return;
+            }
+
+            add_job(executer_, [this, proceed_with_search, peer, msg, search_handle, ping_future](
+                                   const auto & /*completion_token*/) {
+                auto ping_reply = ping_future->get();
+                if (ping_reply->status_code == protocol::StatusCode::OK)
+                {
+                    proceed_with_search({peer}, msg, search_handle);
+                }
+                else
+                {
+                    {
+                        std::lock_guard lock {mutex_};
+                        search_cache_[search_handle.data()->file_hash].erase(peer);
+                    }
+                    search_loop(msg, search_handle);
+                }
+            });
+        });
+    }
 }
 
 bool FileLocatorFlowImpl::cancel_search(const SearchHandle &search_handle)
@@ -680,8 +736,139 @@ void FileLocatorFlowImpl::forward_search_messsage(
 
     // Find some peers
     auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
-    auto completion_token =
-        add_job(io_executer_, [this, from, msg,
+    add_job(io_executer_, [this, from, msg,
+                              peers_list_future = std::make_shared<decltype(peers_list_future)>(
+                                  std::move(peers_list_future))](const auto &completion_token) {
+        peers_list_future->wait();
+        if (completion_token.is_cancelled())
+        {
+            return;
+        }
+
+        add_job(executer_, [this, from, msg, peers_list_future](const auto & /*completion_token*/) {
+            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+            reply->request_id  = msg.request_id;
+            reply->status_code = protocol::StatusCode::OK;
+
+            auto peers = peers_list_future->get();
+            if (peers.empty())
+            {
+                LOG(ERROR) << "No peers found";
+                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+            }
+
+            wait_for_reply_confirmation(
+                protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+
+            if (peers.empty())
+            {
+                return;
+            }
+
+            // Send Search message
+            auto reply_futures = std::make_shared<std::vector<std::pair<network::IPv4Address,
+                std::future<std::unique_ptr<protocol::BasicReply>>>>>();
+            reply_futures->reserve(peers.size());
+            for (auto peer : peers)
+            {
+                auto unique_msg        = std::make_unique<protocol::SearchMessage>(msg);
+                unique_msg->request_id = rng_.next<protocol::RequestId>();
+                reply_futures->emplace_back(
+                    peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
+            }
+
+            add_job(io_executer_, [this, from, msg, reply_futures](const auto &completion_token) {
+                // Check replies
+                bool success = false;
+
+                for (auto &[a, f] : *reply_futures)
+                {
+                    auto reply = f.get();
+                    if (completion_token.is_cancelled())
+                    {
+                        return;
+                    }
+
+                    if (reply->status_code == protocol::StatusCode::OK)
+                    {
+                        success = true;
+                    }
+                }
+
+                if (success)
+                {
+                    add_job(executer_, [this, msg, from](const auto & /*completion_token*/) {
+                        add_offer_routing_table_entry(from, msg.search_id,
+                            file_hash_calculator_->encode(msg.file_hash.data()));
+                    });
+                }
+                else
+                {
+                    LOG(WARNING) << "Could not forward Search message";
+                }
+            });
+        });
+    });
+}
+
+void FileLocatorFlowImpl::forward_search_message_loop(
+    network::IPv4Address from, const protocol::SearchMessage &msg)
+{
+    auto proceed_with_search = [this](const std::vector<network::IPv4Address> &peers,
+                                   const protocol::SearchMessage &msg, network::IPv4Address from) {
+        // Send Search message
+        auto reply_futures = std::make_shared<std::vector<
+            std::pair<network::IPv4Address, std::future<std::unique_ptr<protocol::BasicReply>>>>>();
+        reply_futures->reserve(peers.size());
+        for (auto peer : peers)
+        {
+            auto unique_msg        = std::make_unique<protocol::SearchMessage>(msg);
+            unique_msg->request_id = rng_.next<protocol::RequestId>();
+            reply_futures->emplace_back(
+                peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
+        }
+
+        add_job(io_executer_, [this, from, msg, reply_futures](const auto &completion_token) {
+            // Check replies
+            bool success = false;
+
+            for (auto &[a, f] : *reply_futures)
+            {
+                auto reply = f.get();
+                if (completion_token.is_cancelled())
+                {
+                    return;
+                }
+
+                if (reply->status_code == protocol::StatusCode::OK)
+                {
+                    success = true;
+                }
+            }
+
+            if (success)
+            {
+                add_job(executer_, [this, msg, from](const auto & /*completion_token*/) {
+                    add_offer_routing_table_entry(
+                        from, msg.search_id, file_hash_calculator_->encode(msg.file_hash.data()));
+                });
+            }
+            else
+            {
+                LOG(WARNING) << "Could not forward Search message";
+            }
+        });
+    };
+
+    std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
+
+    std::lock_guard lock {mutex_};
+    auto            search_cache_it = search_cache_.find(file_hash);
+    if (search_cache_it == search_cache_.end() || search_cache_it->second.empty())
+    {
+        // Find some peers
+        auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
+        add_job(io_executer_, [this, proceed_with_search, from, msg,
                                   peers_list_future = std::make_shared<decltype(peers_list_future)>(
                                       std::move(peers_list_future))](const auto &completion_token) {
             peers_list_future->wait();
@@ -690,7 +877,7 @@ void FileLocatorFlowImpl::forward_search_messsage(
                 return;
             }
 
-            add_job(executer_, [this, from, msg, peers_list_future](
+            add_job(executer_, [this, proceed_with_search, from, msg, peers_list_future](
                                    const auto & /*completion_token*/) {
                 auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
                 reply->request_id  = msg.request_id;
@@ -711,51 +898,61 @@ void FileLocatorFlowImpl::forward_search_messsage(
                     return;
                 }
 
-                // Send Search message
-                auto reply_futures = std::make_shared<std::vector<std::pair<network::IPv4Address,
-                    std::future<std::unique_ptr<protocol::BasicReply>>>>>();
-                reply_futures->reserve(peers.size());
-                for (auto peer : peers)
-                {
-                    auto unique_msg        = std::make_unique<protocol::SearchMessage>(msg);
-                    unique_msg->request_id = rng_.next<protocol::RequestId>();
-                    reply_futures->emplace_back(
-                        peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
-                }
-
-                add_job(io_executer_, [this, from, msg, reply_futures](
-                                          const auto &completion_token) {
-                    // Check replies
-                    bool success = false;
-
-                    for (auto &[a, f] : *reply_futures)
-                    {
-                        auto reply = f.get();
-                        if (completion_token.is_cancelled())
-                        {
-                            return;
-                        }
-
-                        if (reply->status_code == protocol::StatusCode::OK)
-                        {
-                            success = true;
-                        }
-                    }
-
-                    if (success)
-                    {
-                        add_job(executer_, [this, msg, from](const auto & /*completion_token*/) {
-                            add_offer_routing_table_entry(from, msg.search_id,
-                                file_hash_calculator_->encode(msg.file_hash.data()));
-                        });
-                    }
-                    else
-                    {
-                        LOG(WARNING) << "Could not forward Search message";
-                    }
-                });
+                proceed_with_search(peers, msg, from);
             });
         });
+    }
+    else
+    {
+        // Send to a random element from cache
+        std::vector<network::IPv4Address> cached_peers(
+            search_cache_it->second.cbegin(), search_cache_it->second.cend());
+
+        auto peer = cached_peers[rng_.next<size_t>(cached_peers.size() - 1)];
+
+        // Ping the chosen peer
+        auto ping        = std::make_unique<protocol::PingMessage>();
+        ping->request_id = rng_.next<protocol::RequestId>();
+
+        auto ping_future = protocol_message_handler_->send(peer, std::move(ping));
+        add_job(io_executer_, [this, proceed_with_search, peer, msg, from, file_hash,
+                                  ping_future = std::make_shared<decltype(ping_future)>(
+                                      std::move(ping_future))](const auto &completion_token) {
+            ping_future->wait();
+            if (completion_token.is_cancelled())
+            {
+                return;
+            }
+
+            add_job(executer_, [this, proceed_with_search, peer, msg, from, file_hash, ping_future](
+                                   const auto & /*completion_token*/) {
+                auto ping_reply = ping_future->get();
+                if (ping_reply->status_code == protocol::StatusCode::OK)
+                {
+                    proceed_with_search({peer}, msg, from);
+                }
+                else
+                {
+                    {
+                        std::lock_guard lock {mutex_};
+                        search_cache_[file_hash].erase(peer);
+                    }
+                    forward_search_message_loop(from, msg);
+
+                    auto uncache_msg        = std::make_unique<protocol::UncacheMessage>();
+                    uncache_msg->request_id = rng_.next<protocol::RequestId>();
+                    uncache_msg->file_hash  = msg.file_hash;
+                    auto uncache_future =
+                        protocol_message_handler_->send(from, std::move(uncache_msg));
+
+                    add_job(io_executer_,
+                        [uncache_future = std::make_shared<decltype(uncache_future)>(
+                             std::move(uncache_future))](
+                            const auto & /*completion_token*/) { uncache_future->wait(); });
+                }
+            });
+        });
+    }
 }
 
 void FileLocatorFlowImpl::forward_offer_message(
