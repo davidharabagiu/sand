@@ -26,7 +26,8 @@ target_link_libraries(${TARGET_NAME}
         network
         protocol
         utils
-        flows)
+        flows
+        storage)
 
 add_custom_target(${RES_TARGET_NAME} ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory
