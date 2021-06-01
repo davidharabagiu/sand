@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <future>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "filelocatorflowimpl.hpp"
@@ -12,6 +13,7 @@
 #include "random.hpp"
 #include "searchhandleimpl.hpp"
 #include "threadpool.hpp"
+#include "transferhandleimpl.hpp"
 
 #include "filehashcalculator_mock.hpp"
 #include "filelocatorflowlistener_mock.hpp"
@@ -63,7 +65,7 @@ protected:
         };
     }
 
-    static auto make_send_search_action(bool                                         success,
+    static auto make_send_message_action(bool                                        success,
         std::function<void(IPv4Address, std::unique_ptr<sand::protocol::Message>)> &&also_do_this =
             {})
     {
@@ -157,7 +159,7 @@ TEST_F(FileLocatorFlowTest, InitiateSearch)
                         Pointee(AllOf(Field(&SearchMessage::sender_public_key, pub_key_),
                             Field(&SearchMessage::file_hash, bin_file_hash)))))))
         .Times(search_propagation_degree_)
-        .WillRepeatedly(make_send_search_action(true, [&](auto p, auto m) {
+        .WillRepeatedly(make_send_message_action(true, [&](auto p, auto m) {
             sent_to.push_back(p);
             search_ids.push_back(dynamic_cast<SearchMessage *>(m.get())->search_id);
         }));
@@ -278,7 +280,7 @@ TEST_F(FileLocatorFlowTest, ForwardSearch)
                             Field(&SearchMessage::request_id, Not(msg.request_id)),
                             Field(&SearchMessage::search_id, msg.search_id)))))))
         .Times(search_propagation_degree_)
-        .WillRepeatedly(make_send_search_action(
+        .WillRepeatedly(make_send_message_action(
             true, [&](IPv4Address p, auto /*msg*/) { sent_to.push_back(p); }));
 
     EXPECT_CALL(*protocol_message_handler_,
@@ -327,7 +329,7 @@ TEST_F(FileLocatorFlowTest, ForwardSearch_PropagationLoop)
                             Field(&SearchMessage::request_id, Not(msg.request_id)),
                             Field(&SearchMessage::search_id, msg.search_id)))))))
         .Times(search_propagation_degree_)
-        .WillRepeatedly(make_send_search_action(
+        .WillRepeatedly(make_send_message_action(
             true, [&](IPv4Address p, auto /*msg*/) { sent_to.push_back(p); }));
 
     EXPECT_CALL(*protocol_message_handler_,
@@ -420,24 +422,515 @@ TEST_F(FileLocatorFlowTest, FileWanted)
 
 TEST_F(FileLocatorFlowTest, SendOffer)
 {
+    const std::string file_hash = "manele2021";
+    AHash             bin_file_hash;
+    std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
+    IPv4Address from = rng_.next<IPv4Address>();
+    TransferKey transfer_key;
+    std::generate(transfer_key.begin(), transfer_key.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<TransferHandleImpl::PartData> parts(3);
+    std::generate(parts.begin(), parts.end(), [&] {
+        return TransferHandleImpl::PartData {
+            rng_.next<IPv4Address>(), rng_.next<FileSize>(), rng_.next<PartSize>()};
+    });
+    std::vector<Byte> encrypted_secret_data(666);
+    std::generate(encrypted_secret_data.begin(), encrypted_secret_data.end(),
+        [&] { return rng_.next<Byte>(); });
+
+    SearchMessage msg;
+    msg.request_id        = rng_.next<RequestId>();
+    msg.sender_public_key = "kkt";
+    std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
+    msg.search_id = rng_.next<SearchId>();
+
+    auto flow = make_flow();
+    flow->start();
+    flow->register_listener(listener_);
+
+    ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
+    ON_CALL(*file_hash_calculator_, encode(_)).WillByDefault(Return(file_hash));
+
+    std::vector<IPv4Address> sent_to;
+
+    ON_CALL(*protocol_message_handler_,
+        send_reply(from, Pointee(AllOf(Field(&BasicReply::request_id, msg.request_id),
+                             Field(&BasicReply::status_code, StatusCode::OK)))))
+        .WillByDefault(make_send_reply_action());
+
+    SearchHandle search_handle;
+
+    ON_CALL(
+        *listener_, on_file_wanted(ResultOf([](const auto &sh) { return sh.data(); },
+                        Pointee(AllOf(Field(&SearchHandleImpl::search_id, msg.search_id),
+                            Field(&SearchHandleImpl::file_hash, file_hash),
+                            Field(&SearchHandleImpl::sender_public_key, msg.sender_public_key))))))
+        .WillByDefault(SaveArg<0>(&search_handle));
+
+    inbound_request_dispatcher_->on_message_received(from, msg);
+    thread_pool_->process_all_jobs();
+
+    TransferHandle transfer_handle(std::make_shared<TransferHandleImpl>(
+        *search_handle.data(), rng_.next<OfferId>(), transfer_key, parts));
+
+    ON_CALL(*secret_data_interpreter_,
+        encrypt_offer_message(AllOf(Field(&OfferMessage::SecretData::transfer_key, transfer_key),
+                                  Truly([&](const auto &secret_data) {
+                                      return std::equal(secret_data.parts.cbegin(),
+                                          secret_data.parts.cend(), parts.cbegin(),
+                                          [](const auto &p1, const auto &p2) {
+                                              return p1.drop_point == p2.drop_point &&
+                                                     p1.part_offset == p2.part_offset &&
+                                                     p1.part_size == p2.part_size;
+                                          });
+                                  })),
+            msg.sender_public_key))
+        .WillByDefault(Return(encrypted_secret_data));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(from, ResultOf([](auto &&ptr) { return ptr.get(); },
+                       WhenDynamicCastTo<OfferMessage *>(
+                           Pointee(AllOf(Field(&OfferMessage::search_id, msg.search_id),
+                               Field(&OfferMessage::offer_id, transfer_handle.data()->offer_id),
+                               Field(&OfferMessage::encrypted_data, encrypted_secret_data)))))))
+        .Times(1)
+        .WillRepeatedly(make_send_message_action(true));
+
+    EXPECT_TRUE(flow->send_offer(transfer_handle));
+    thread_pool_->process_all_jobs();
+}
+
+TEST_F(FileLocatorFlowTest, SendOffer_OfferIdDuplication)
+{
+    const std::string file_hash = "manele2021";
+    AHash             bin_file_hash;
+    std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
+    IPv4Address from = rng_.next<IPv4Address>();
+    TransferKey transfer_key;
+    std::generate(transfer_key.begin(), transfer_key.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<TransferHandleImpl::PartData> parts(3);
+    std::generate(parts.begin(), parts.end(), [&] {
+        return TransferHandleImpl::PartData {
+            rng_.next<IPv4Address>(), rng_.next<FileSize>(), rng_.next<PartSize>()};
+    });
+    std::vector<Byte> encrypted_secret_data(666);
+    std::generate(encrypted_secret_data.begin(), encrypted_secret_data.end(),
+        [&] { return rng_.next<Byte>(); });
+
+    SearchMessage msg;
+    msg.request_id        = rng_.next<RequestId>();
+    msg.sender_public_key = "kkt";
+    std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
+    msg.search_id = rng_.next<SearchId>();
+
+    auto flow = make_flow();
+    flow->start();
+    flow->register_listener(listener_);
+
+    ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
+    ON_CALL(*file_hash_calculator_, encode(_)).WillByDefault(Return(file_hash));
+
+    std::vector<IPv4Address> sent_to;
+
+    ON_CALL(*protocol_message_handler_,
+        send_reply(from, Pointee(AllOf(Field(&BasicReply::request_id, msg.request_id),
+                             Field(&BasicReply::status_code, StatusCode::OK)))))
+        .WillByDefault(make_send_reply_action());
+
+    SearchHandle search_handle;
+
+    ON_CALL(
+        *listener_, on_file_wanted(ResultOf([](const auto &sh) { return sh.data(); },
+                        Pointee(AllOf(Field(&SearchHandleImpl::search_id, msg.search_id),
+                            Field(&SearchHandleImpl::file_hash, file_hash),
+                            Field(&SearchHandleImpl::sender_public_key, msg.sender_public_key))))))
+        .WillByDefault(SaveArg<0>(&search_handle));
+
+    inbound_request_dispatcher_->on_message_received(from, msg);
+    thread_pool_->process_all_jobs();
+
+    TransferHandle transfer_handle(std::make_shared<TransferHandleImpl>(
+        *search_handle.data(), rng_.next<OfferId>(), transfer_key, parts));
+
+    ON_CALL(*secret_data_interpreter_,
+        encrypt_offer_message(AllOf(Field(&OfferMessage::SecretData::transfer_key, transfer_key),
+                                  Truly([&](const auto &secret_data) {
+                                      return std::equal(secret_data.parts.cbegin(),
+                                          secret_data.parts.cend(), parts.cbegin(),
+                                          [](const auto &p1, const auto &p2) {
+                                              return p1.drop_point == p2.drop_point &&
+                                                     p1.part_offset == p2.part_offset &&
+                                                     p1.part_size == p2.part_size;
+                                          });
+                                  })),
+            msg.sender_public_key))
+        .WillByDefault(Return(encrypted_secret_data));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(from, ResultOf([](auto &&ptr) { return ptr.get(); },
+                       WhenDynamicCastTo<OfferMessage *>(
+                           Pointee(AllOf(Field(&OfferMessage::search_id, msg.search_id),
+                               Field(&OfferMessage::offer_id, transfer_handle.data()->offer_id),
+                               Field(&OfferMessage::encrypted_data, encrypted_secret_data)))))))
+        .Times(1)
+        .WillRepeatedly(make_send_message_action(true));
+
+    EXPECT_TRUE(flow->send_offer(transfer_handle));
+    thread_pool_->process_all_jobs();
+    EXPECT_FALSE(flow->send_offer(transfer_handle));
+}
+
+TEST_F(FileLocatorFlowTest, SendOffer_NoAssociatedSearch)
+{
+    const std::string file_hash = "manele2021";
+    IPv4Address       from      = rng_.next<IPv4Address>();
+    TransferKey       transfer_key;
+    std::generate(transfer_key.begin(), transfer_key.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<TransferHandleImpl::PartData> parts(3);
+    std::generate(parts.begin(), parts.end(), [&] {
+        return TransferHandleImpl::PartData {
+            rng_.next<IPv4Address>(), rng_.next<FileSize>(), rng_.next<PartSize>()};
+    });
+
+    auto flow = make_flow();
+    flow->start();
+    flow->register_listener(listener_);
+
+    std::vector<IPv4Address> sent_to;
+
+    TransferHandle transfer_handle(std::make_shared<TransferHandleImpl>(
+        SearchHandleImpl {file_hash, rng_.next<SearchId>(), "kkt"}, rng_.next<OfferId>(),
+        transfer_key, parts));
+
+    EXPECT_CALL(*protocol_message_handler_, send(from, _)).Times(0);
+
+    EXPECT_FALSE(flow->send_offer(transfer_handle));
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(FileLocatorFlowTest, ForwardOffer)
 {
+    const std::string file_hash = "manele2021";
+    AHash             bin_file_hash;
+    std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<IPv4Address> peers(static_cast<size_t>(search_propagation_degree_));
+    std::generate(peers.begin(), peers.end(), [&] { return rng_.next<IPv4Address>(); });
+    IPv4Address from = rng_.next<IPv4Address>();
+
+    SearchMessage search_msg;
+    search_msg.request_id        = rng_.next<RequestId>();
+    search_msg.sender_public_key = "kkt";
+    std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), search_msg.file_hash.begin());
+    search_msg.search_id = rng_.next<SearchId>();
+
+    auto flow = make_flow();
+    flow->start();
+
+    ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
+    ON_CALL(*file_hash_calculator_, encode(_)).WillByDefault(Return(file_hash));
+    ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_))
+        .WillByDefault(make_get_peers_action(peers));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(_, ResultOf([](auto &&ptr) { return ptr.get(); },
+                    WhenDynamicCastTo<SearchMessage *>(Pointee(AllOf(
+                        Field(&SearchMessage::sender_public_key, search_msg.sender_public_key),
+                        Field(&SearchMessage::file_hash, search_msg.file_hash),
+                        Field(&SearchMessage::request_id, Not(search_msg.request_id)),
+                        Field(&SearchMessage::search_id, search_msg.search_id)))))))
+        .Times(search_propagation_degree_)
+        .WillRepeatedly(make_send_message_action(true));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(from, Pointee(AllOf(Field(&BasicReply::request_id, search_msg.request_id),
+                             Field(&BasicReply::status_code, StatusCode::OK)))))
+        .Times(1)
+        .WillRepeatedly(make_send_reply_action());
+
+    inbound_request_dispatcher_->on_message_received(from, search_msg);
+    thread_pool_->process_all_jobs();
+
+    OfferMessage offer_msg;
+    offer_msg.request_id = rng_.next<RequestId>();
+    offer_msg.search_id  = search_msg.search_id;
+    offer_msg.offer_id   = rng_.next<OfferId>();
+    offer_msg.encrypted_data.resize(666);
+    std::generate(offer_msg.encrypted_data.begin(), offer_msg.encrypted_data.end(),
+        [&] { return rng_.next<Byte>(); });
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(from, ResultOf([](auto &&ptr) { return ptr.get(); },
+                       WhenDynamicCastTo<OfferMessage *>(Pointee(
+                           AllOf(Field(&OfferMessage::request_id, Not(offer_msg.request_id)),
+                               Field(&OfferMessage::search_id, offer_msg.search_id),
+                               Field(&OfferMessage::offer_id, offer_msg.offer_id),
+                               Field(&OfferMessage::encrypted_data, offer_msg.encrypted_data)))))))
+        .Times(1)
+        .WillRepeatedly(make_send_message_action(true));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(peers[0], Pointee(AllOf(Field(&BasicReply::request_id, offer_msg.request_id),
+                                 Field(&BasicReply::status_code, StatusCode::OK)))))
+        .Times(1)
+        .WillRepeatedly(make_send_reply_action());
+
+    inbound_request_dispatcher_->on_message_received(peers[0], offer_msg);
+    thread_pool_->process_all_jobs();
+}
+
+TEST_F(FileLocatorFlowTest, ForwardOffer_UnknownSearchId)
+{
+    IPv4Address from = rng_.next<IPv4Address>();
+
+    auto flow = make_flow();
+    flow->start();
+
+    OfferMessage offer_msg;
+    offer_msg.request_id = rng_.next<RequestId>();
+    offer_msg.search_id  = rng_.next<SearchId>();
+    offer_msg.offer_id   = rng_.next<OfferId>();
+    offer_msg.encrypted_data.resize(666);
+    std::generate(offer_msg.encrypted_data.begin(), offer_msg.encrypted_data.end(),
+        [&] { return rng_.next<Byte>(); });
+
+    EXPECT_CALL(*protocol_message_handler_, send(_, _)).Times(0);
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(from, Pointee(AllOf(Field(&BasicReply::request_id, offer_msg.request_id),
+                             Field(&BasicReply::status_code, StatusCode::CANNOT_FORWARD)))))
+        .Times(1)
+        .WillRepeatedly(make_send_reply_action());
+
+    inbound_request_dispatcher_->on_message_received(from, offer_msg);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(FileLocatorFlowTest, FileFound)
 {
+    const std::string file_hash = "manele2021";
+    AHash             bin_file_hash;
+    std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<IPv4Address> peers(static_cast<size_t>(search_propagation_degree_));
+    std::generate(peers.begin(), peers.end(), [&] { return rng_.next<IPv4Address>(); });
+
+    auto flow = make_flow();
+    flow->start();
+    flow->register_listener(listener_);
+
+    ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
+    ON_CALL(*file_hash_calculator_, decode(file_hash, _))
+        .WillByDefault(
+            DoAll(SetArrayArgument<1>(bin_file_hash.cbegin(), bin_file_hash.cend()), Return(true)));
+    ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_))
+        .WillByDefault(make_get_peers_action(peers));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(_, ResultOf([](auto &&ptr) { return ptr.get(); },
+                    WhenDynamicCastTo<SearchMessage *>(
+                        Pointee(AllOf(Field(&SearchMessage::sender_public_key, pub_key_),
+                            Field(&SearchMessage::file_hash, bin_file_hash)))))))
+        .Times(search_propagation_degree_)
+        .WillRepeatedly(make_send_message_action(true));
+
+    auto sh = flow->search(file_hash);
+    EXPECT_TRUE(sh.is_valid());
+    EXPECT_EQ(sh.data()->file_hash, file_hash);
+    EXPECT_EQ(sh.data()->sender_public_key, pub_key_);
+
+    thread_pool_->process_all_jobs();
+
+    OfferMessage offer_msg;
+    offer_msg.request_id = rng_.next<RequestId>();
+    offer_msg.search_id  = sh.data()->search_id;
+    offer_msg.offer_id   = rng_.next<OfferId>();
+    offer_msg.encrypted_data.resize(666);
+    std::generate(offer_msg.encrypted_data.begin(), offer_msg.encrypted_data.end(),
+        [&] { return rng_.next<Byte>(); });
+
+    OfferMessage::SecretData secret_data;
+    std::generate(secret_data.transfer_key.begin(), secret_data.transfer_key.end(),
+        [&] { return rng_.next<Byte>(); });
+    secret_data.parts.resize(3);
+    std::generate(secret_data.parts.begin(), secret_data.parts.end(), [&] {
+        return TransferHandleImpl::PartData {
+            rng_.next<IPv4Address>(), rng_.next<FileSize>(), rng_.next<PartSize>()};
+    });
+
+    ON_CALL(*secret_data_interpreter_, decrypt_offer_message(offer_msg.encrypted_data, pri_key_))
+        .WillByDefault(Return(std::make_pair(secret_data, true)));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(peers[0], Pointee(AllOf(Field(&BasicReply::request_id, offer_msg.request_id),
+                                 Field(&BasicReply::status_code, StatusCode::OK)))))
+        .Times(1)
+        .WillRepeatedly(make_send_reply_action());
+
+    EXPECT_CALL(*listener_,
+        on_file_found(ResultOf([](const auto &th) { return th.data(); },
+            Pointee(AllOf(
+                Field(&TransferHandleImpl::search_handle,
+                    AllOf(Field(&SearchHandleImpl::search_id, sh.data()->search_id),
+                        Field(&SearchHandleImpl::file_hash, sh.data()->file_hash),
+                        Field(&SearchHandleImpl::sender_public_key, sh.data()->sender_public_key))),
+                Field(&TransferHandleImpl::offer_id, offer_msg.offer_id),
+                Field(&TransferHandleImpl::transfer_key, secret_data.transfer_key),
+                Field(&TransferHandleImpl::parts, Truly([&](const auto &parts) {
+                    return std::equal(parts.cbegin(), parts.cend(), secret_data.parts.cbegin(),
+                        [](const auto &p1, const auto &p2) {
+                            return p1.drop_point == p2.drop_point &&
+                                   p1.part_offset == p2.part_offset && p1.part_size == p2.part_size;
+                        });
+                })))))))
+        .Times(1);
+
+    inbound_request_dispatcher_->on_message_received(peers[0], offer_msg);
+    thread_pool_->process_all_jobs();
+}
+
+TEST_F(FileLocatorFlowTest, FileFound_OfferDecryptionError)
+{
+    const std::string file_hash = "manele2021";
+    AHash             bin_file_hash;
+    std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<IPv4Address> peers(static_cast<size_t>(search_propagation_degree_));
+    std::generate(peers.begin(), peers.end(), [&] { return rng_.next<IPv4Address>(); });
+
+    auto flow = make_flow();
+    flow->start();
+    flow->register_listener(listener_);
+
+    ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
+    ON_CALL(*file_hash_calculator_, decode(file_hash, _))
+        .WillByDefault(
+            DoAll(SetArrayArgument<1>(bin_file_hash.cbegin(), bin_file_hash.cend()), Return(true)));
+    ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_))
+        .WillByDefault(make_get_peers_action(peers));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(_, ResultOf([](auto &&ptr) { return ptr.get(); },
+                    WhenDynamicCastTo<SearchMessage *>(
+                        Pointee(AllOf(Field(&SearchMessage::sender_public_key, pub_key_),
+                            Field(&SearchMessage::file_hash, bin_file_hash)))))))
+        .Times(search_propagation_degree_)
+        .WillRepeatedly(make_send_message_action(true));
+
+    auto sh = flow->search(file_hash);
+    EXPECT_TRUE(sh.is_valid());
+    EXPECT_EQ(sh.data()->file_hash, file_hash);
+    EXPECT_EQ(sh.data()->sender_public_key, pub_key_);
+
+    thread_pool_->process_all_jobs();
+
+    OfferMessage offer_msg;
+    offer_msg.request_id = rng_.next<RequestId>();
+    offer_msg.search_id  = sh.data()->search_id;
+    offer_msg.offer_id   = rng_.next<OfferId>();
+    offer_msg.encrypted_data.resize(666);
+    std::generate(offer_msg.encrypted_data.begin(), offer_msg.encrypted_data.end(),
+        [&] { return rng_.next<Byte>(); });
+
+    ON_CALL(*secret_data_interpreter_, decrypt_offer_message(offer_msg.encrypted_data, pri_key_))
+        .WillByDefault(Return(std::make_pair(OfferMessage::SecretData {}, false)));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(peers[0], Pointee(AllOf(Field(&BasicReply::request_id, offer_msg.request_id),
+                                 Field(&BasicReply::status_code, StatusCode::CANNOT_FORWARD)))))
+        .Times(1)
+        .WillRepeatedly(make_send_reply_action());
+
+    EXPECT_CALL(*listener_, on_file_found(_)).Times(0);
+
+    inbound_request_dispatcher_->on_message_received(peers[0], offer_msg);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(FileLocatorFlowTest, ConfirmTransfer)
 {
+    const std::string file_hash = "manele2021";
+    AHash             bin_file_hash;
+    std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<IPv4Address> peers(static_cast<size_t>(search_propagation_degree_));
+    std::generate(peers.begin(), peers.end(), [&] { return rng_.next<IPv4Address>(); });
+
+    auto flow = make_flow();
+    flow->start();
+    flow->register_listener(listener_);
+
+    ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
+    ON_CALL(*file_hash_calculator_, decode(file_hash, _))
+        .WillByDefault(
+            DoAll(SetArrayArgument<1>(bin_file_hash.cbegin(), bin_file_hash.cend()), Return(true)));
+    ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_))
+        .WillByDefault(make_get_peers_action(peers));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send(_, ResultOf([](auto &&ptr) { return ptr.get(); },
+                    WhenDynamicCastTo<SearchMessage *>(
+                        Pointee(AllOf(Field(&SearchMessage::sender_public_key, pub_key_),
+                            Field(&SearchMessage::file_hash, bin_file_hash)))))))
+        .Times(search_propagation_degree_)
+        .WillRepeatedly(make_send_message_action(true));
+
+    auto sh = flow->search(file_hash);
+    EXPECT_TRUE(sh.is_valid());
+    EXPECT_EQ(sh.data()->file_hash, file_hash);
+    EXPECT_EQ(sh.data()->sender_public_key, pub_key_);
+
+    thread_pool_->process_all_jobs();
+
+    OfferMessage offer_msg;
+    offer_msg.request_id = rng_.next<RequestId>();
+    offer_msg.search_id  = sh.data()->search_id;
+    offer_msg.offer_id   = rng_.next<OfferId>();
+    offer_msg.encrypted_data.resize(666);
+    std::generate(offer_msg.encrypted_data.begin(), offer_msg.encrypted_data.end(),
+        [&] { return rng_.next<Byte>(); });
+
+    OfferMessage::SecretData secret_data;
+    std::generate(secret_data.transfer_key.begin(), secret_data.transfer_key.end(),
+        [&] { return rng_.next<Byte>(); });
+    secret_data.parts.resize(3);
+    std::generate(secret_data.parts.begin(), secret_data.parts.end(), [&] {
+        return TransferHandleImpl::PartData {
+            rng_.next<IPv4Address>(), rng_.next<FileSize>(), rng_.next<PartSize>()};
+    });
+
+    ON_CALL(*secret_data_interpreter_, decrypt_offer_message(offer_msg.encrypted_data, pri_key_))
+        .WillByDefault(Return(std::make_pair(secret_data, true)));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(peers[0], Pointee(AllOf(Field(&BasicReply::request_id, offer_msg.request_id),
+                                 Field(&BasicReply::status_code, StatusCode::OK)))))
+        .Times(1)
+        .WillRepeatedly(make_send_reply_action());
+
+    EXPECT_CALL(*listener_,
+        on_file_found(ResultOf([](const auto &th) { return th.data(); },
+            Pointee(AllOf(
+                Field(&TransferHandleImpl::search_handle,
+                    AllOf(Field(&SearchHandleImpl::search_id, sh.data()->search_id),
+                        Field(&SearchHandleImpl::file_hash, sh.data()->file_hash),
+                        Field(&SearchHandleImpl::sender_public_key, sh.data()->sender_public_key))),
+                Field(&TransferHandleImpl::offer_id, offer_msg.offer_id),
+                Field(&TransferHandleImpl::transfer_key, secret_data.transfer_key),
+                Field(&TransferHandleImpl::parts, Truly([&](const auto &parts) {
+                    return std::equal(parts.cbegin(), parts.cend(), secret_data.parts.cbegin(),
+                        [](const auto &p1, const auto &p2) {
+                            return p1.drop_point == p2.drop_point &&
+                                   p1.part_offset == p2.part_offset && p1.part_size == p2.part_size;
+                        });
+                })))))))
+        .Times(1);
+
+    inbound_request_dispatcher_->on_message_received(peers[0], offer_msg);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(FileLocatorFlowTest, ForwardConfirmTransfer)
 {
+    make_flow();
 }
 
 TEST_F(FileLocatorFlowTest, TransferConfirmed)
 {
+    make_flow();
 }

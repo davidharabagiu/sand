@@ -338,8 +338,8 @@ void FileLocatorFlowImpl::search_loop(
 bool FileLocatorFlowImpl::cancel_search(const SearchHandle &search_handle)
 {
     std::lock_guard lock {mutex_};
-    bool            ok = ongoing_searches_.erase(search_handle.data()->search_id) != 0;
-    ok &= ongoing_searches_files_.erase(search_handle.data()->file_hash) != 0;
+    bool            ok = ongoing_searches_files_.erase(search_handle.data()->file_hash) != 0;
+    ok &= ongoing_searches_.erase(search_handle.data()->search_id) != 0;
     return ok;
 }
 
@@ -537,25 +537,30 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
         reply->status_code = protocol::StatusCode::OK;
 
         {
-            std::lock_guard lock {mutex_};
+            std::unique_lock lock {mutex_};
             ongoing_search_it = ongoing_searches_.find(msg.search_id);
             if (ongoing_search_it != ongoing_searches_.end())
             {
                 forward = false;
+                search_cache_[ongoing_search_it->second.data()->file_hash].emplace(from);
             }
-
-            auto routing_table_it = offer_routing_table_.find(msg.search_id);
-            if (routing_table_it == offer_routing_table_.end())
+            else
             {
-                LOG(INFO) << "Routing table entry not found for search_id " << msg.search_id;
-                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
-                wait_for_reply_confirmation(
-                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
-                return;
-            }
+                auto routing_table_it = offer_routing_table_.find(msg.search_id);
+                if (routing_table_it == offer_routing_table_.end())
+                {
+                    lock.unlock();
+                    LOG(INFO) << "Routing table entry not found for search_id " << msg.search_id;
+                    reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+                    wait_for_reply_confirmation(
+                        protocol_message_handler_->send_reply(from, std::move(reply)),
+                        msg.request_id);
+                    return;
+                }
 
-            std::string file_hash = std::get<1>(routing_table_it->second);
-            search_cache_[file_hash].emplace(from);
+                std::string file_hash = std::get<1>(routing_table_it->second);
+                search_cache_[file_hash].emplace(from);
+            }
         }
 
         if (forward)
@@ -570,6 +575,9 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
             if (!ok)
             {
                 LOG(WARNING) << "Unable to decrypt secret data of Offer message";
+                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+                wait_for_reply_confirmation(
+                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
                 return;
             }
 
@@ -580,7 +588,6 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
                     protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
 
                 std::lock_guard lock {mutex_};
-                offer_routing_table_.erase(msg.search_id);
 
                 // Notify
                 listener_group_.notify(&FileLocatorFlowListener::on_file_found,
