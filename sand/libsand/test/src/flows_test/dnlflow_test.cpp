@@ -9,7 +9,6 @@
 #include "dnlconfig.hpp"
 #include "dnlflowimpl.hpp"
 #include "inboundrequestdispatcher.hpp"
-#include "iothreadpool.hpp"
 #include "random.hpp"
 #include "testutils.hpp"
 #include "threadpool.hpp"

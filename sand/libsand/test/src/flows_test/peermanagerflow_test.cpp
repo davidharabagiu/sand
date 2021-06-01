@@ -7,7 +7,6 @@
 
 #include "dnlconfig.hpp"
 #include "inboundrequestdispatcher.hpp"
-#include "iothreadpool.hpp"
 #include "peermanagerflowimpl.hpp"
 #include "random.hpp"
 #include "testutils.hpp"

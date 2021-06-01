@@ -52,6 +52,7 @@ FileLocatorFlowImpl::FileLocatorFlowImpl(
     , search_propagation_degree_ {search_propagation_degree}
     , search_timeout_sec_ {search_timeout_sec}
     , routing_table_entry_expiration_time_sec_ {routing_table_entry_expiration_time_sec}
+    , state_ {State::IDLE}
 {
     inbound_request_dispatcher_->set_callback<protocol::SearchMessage>(
         [this](auto &&p1, auto &&p2) {
@@ -707,7 +708,7 @@ void FileLocatorFlowImpl::handle_confirm_transfer(
             reply->request_id  = msg.request_id;
             reply->status_code = protocol::StatusCode::OK;
             wait_for_reply_confirmation(
-                protocol_message_handler_->send_reply(from, std::move(reply)), reply->request_id);
+                protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
 
             std::lock_guard lock {mutex_};
             confirm_tx_routing_table_.erase(msg.offer_id);
