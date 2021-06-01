@@ -6,6 +6,7 @@ namespace sand::utils
 {
 ThreadPool::ThreadPool(size_t thread_count)
     : jobs_count_ {0}
+    , jobs_to_process_ {0}
     , running_ {true}
 {
     threads_.reserve(thread_count);
@@ -37,6 +38,7 @@ CompletionToken ThreadPool::add_job(Job &&job, Priority priority)
         std::lock_guard<std::mutex> lock {mutex_};
         jobs_[priority].emplace(std::move(job), completion_token);
         ++jobs_count_;
+        ++jobs_to_process_;
     }
     cv_empty_.notify_one();
 
@@ -71,10 +73,6 @@ void ThreadPool::ThreadRoutine()
         }
 
         --jobs_count_;
-        if (jobs_count_ == 0)
-        {
-            cv_not_empty_.notify_all();
-        }
 
         lock.unlock();
 
@@ -82,14 +80,20 @@ void ThreadPool::ThreadRoutine()
         {
             job(completion_token);
         }
-
         completion_token.complete();
+
+        lock.lock();
+        if (--jobs_to_process_ == 0)
+        {
+            lock.unlock();
+            cv_jobs_left_.notify_all();
+        }
     }
 }
 
 void ThreadPool::process_all_jobs()
 {
     std::unique_lock lock {mutex_};
-    cv_not_empty_.wait(lock, [this] { return jobs_count_ == 0; });
+    cv_jobs_left_.wait(lock, [this] { return jobs_to_process_ == 0; });
 }
 }  // namespace sand::utils

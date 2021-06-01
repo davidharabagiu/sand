@@ -18,7 +18,7 @@ struct SearchHandleImpl
         std::string a_file_hash, protocol::SearchId a_search_id, std::string a_sender_public_key)
         : file_hash {std::move(a_file_hash)}
         , search_id {a_search_id}
-        , sender_public_key {a_sender_public_key}
+        , sender_public_key {std::move(a_sender_public_key)}
     {
     }
 

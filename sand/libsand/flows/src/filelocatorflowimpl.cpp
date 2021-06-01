@@ -177,7 +177,7 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
     protocol::SearchMessage msg;
     msg.search_id         = rng_.next<protocol::SearchId>();
     msg.sender_public_key = public_key_;
-    if (file_hash_calculator_->decode(file_hash, msg.file_hash.data()))
+    if (!file_hash_calculator_->decode(file_hash, msg.file_hash.data()))
     {
         LOG(WARNING) << "Invalid file hash provided";
         return SearchHandle();
@@ -250,9 +250,25 @@ void FileLocatorFlowImpl::search_loop(
         });
     };
 
-    std::lock_guard lock {mutex_};
-    auto            search_cache_it = search_cache_.find(search_handle.data()->file_hash);
-    if (search_cache_it == search_cache_.end() || search_cache_it->second.empty())
+    bool                              from_cache = true;
+    std::vector<network::IPv4Address> cached_peers;
+
+    {
+        std::lock_guard lock {mutex_};
+        auto            search_cache_it = search_cache_.find(search_handle.data()->file_hash);
+        if (search_cache_it == search_cache_.end() || search_cache_it->second.empty())
+        {
+            from_cache = false;
+        }
+        else
+        {
+            cached_peers.resize(search_cache_it->second.size());
+            std::copy(search_cache_it->second.cbegin(), search_cache_it->second.cend(),
+                cached_peers.begin());
+        }
+    }
+
+    if (!from_cache)
     {
         // Find some peers
         auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
@@ -266,12 +282,13 @@ void FileLocatorFlowImpl::search_loop(
                 return;
             }
 
-            add_job(executer_, [proceed_with_search, msg, search_handle, peers_list_future](
+            add_job(executer_, [this, proceed_with_search, msg, search_handle, peers_list_future](
                                    const auto & /*completion_token*/) {
                 auto peers = peers_list_future->get();
                 if (peers.empty())
                 {
                     LOG(WARNING) << "No peers to perform search with";
+                    cancel_search(search_handle);
                     return;
                 }
 
@@ -282,9 +299,6 @@ void FileLocatorFlowImpl::search_loop(
     else
     {
         // Send to a random element from cache
-        std::vector<network::IPv4Address> cached_peers(
-            search_cache_it->second.cbegin(), search_cache_it->second.cend());
-
         auto peer = cached_peers[rng_.next<size_t>(cached_peers.size() - 1)];
 
         // Ping the chosen peer
@@ -734,81 +748,7 @@ void FileLocatorFlowImpl::forward_search_messsage(
         }
     }
 
-    // Find some peers
-    auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
-    add_job(io_executer_, [this, from, msg,
-                              peers_list_future = std::make_shared<decltype(peers_list_future)>(
-                                  std::move(peers_list_future))](const auto &completion_token) {
-        peers_list_future->wait();
-        if (completion_token.is_cancelled())
-        {
-            return;
-        }
-
-        add_job(executer_, [this, from, msg, peers_list_future](const auto & /*completion_token*/) {
-            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-            reply->request_id  = msg.request_id;
-            reply->status_code = protocol::StatusCode::OK;
-
-            auto peers = peers_list_future->get();
-            if (peers.empty())
-            {
-                LOG(ERROR) << "No peers found";
-                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
-            }
-
-            wait_for_reply_confirmation(
-                protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
-
-            if (peers.empty())
-            {
-                return;
-            }
-
-            // Send Search message
-            auto reply_futures = std::make_shared<std::vector<std::pair<network::IPv4Address,
-                std::future<std::unique_ptr<protocol::BasicReply>>>>>();
-            reply_futures->reserve(peers.size());
-            for (auto peer : peers)
-            {
-                auto unique_msg        = std::make_unique<protocol::SearchMessage>(msg);
-                unique_msg->request_id = rng_.next<protocol::RequestId>();
-                reply_futures->emplace_back(
-                    peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
-            }
-
-            add_job(io_executer_, [this, from, msg, reply_futures](const auto &completion_token) {
-                // Check replies
-                bool success = false;
-
-                for (auto &[a, f] : *reply_futures)
-                {
-                    auto reply = f.get();
-                    if (completion_token.is_cancelled())
-                    {
-                        return;
-                    }
-
-                    if (reply->status_code == protocol::StatusCode::OK)
-                    {
-                        success = true;
-                    }
-                }
-
-                if (success)
-                {
-                    add_job(executer_, [this, msg, from](const auto & /*completion_token*/) {
-                        add_offer_routing_table_entry(from, msg.search_id,
-                            file_hash_calculator_->encode(msg.file_hash.data()));
-                    });
-                }
-                else
-                {
-                    LOG(WARNING) << "Could not forward Search message";
-                }
-            });
-        });
-    });
+    forward_search_message_loop(from, msg);
 }
 
 void FileLocatorFlowImpl::forward_search_message_loop(
@@ -862,9 +802,22 @@ void FileLocatorFlowImpl::forward_search_message_loop(
 
     std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
 
-    std::lock_guard lock {mutex_};
-    auto            search_cache_it = search_cache_.find(file_hash);
-    if (search_cache_it == search_cache_.end() || search_cache_it->second.empty())
+    bool                              from_cache = false;
+    std::vector<network::IPv4Address> cached_peers;
+
+    {
+        std::lock_guard lock {mutex_};
+        auto            search_cache_it = search_cache_.find(file_hash);
+        if (search_cache_it != search_cache_.end() && !search_cache_it->second.empty())
+        {
+            from_cache = true;
+            cached_peers.resize(search_cache_it->second.size());
+            std::copy(search_cache_it->second.cbegin(), search_cache_it->second.cend(),
+                cached_peers.begin());
+        }
+    }
+
+    if (!from_cache)
     {
         // Find some peers
         auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
@@ -905,9 +858,6 @@ void FileLocatorFlowImpl::forward_search_message_loop(
     else
     {
         // Send to a random element from cache
-        std::vector<network::IPv4Address> cached_peers(
-            search_cache_it->second.cbegin(), search_cache_it->second.cend());
-
         auto peer = cached_peers[rng_.next<size_t>(cached_peers.size() - 1)];
 
         // Ping the chosen peer

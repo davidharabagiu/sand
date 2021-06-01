@@ -33,9 +33,10 @@ private:
     std::vector<std::thread>                                        threads_;
     std::map<Priority, std::queue<std::pair<Job, CompletionToken>>> jobs_;
     size_t                                                          jobs_count_;
+    size_t                                                          jobs_to_process_;
     std::mutex                                                      mutex_;
     std::condition_variable                                         cv_empty_;
-    std::condition_variable                                         cv_not_empty_;
+    std::condition_variable                                         cv_jobs_left_;
     std::atomic_bool                                                running_;
 };
 }  // namespace sand::utils
