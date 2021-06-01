@@ -71,6 +71,10 @@ void ThreadPool::ThreadRoutine()
         }
 
         --jobs_count_;
+        if (jobs_count_ == 0)
+        {
+            cv_not_empty_.notify_all();
+        }
 
         lock.unlock();
 
@@ -81,5 +85,11 @@ void ThreadPool::ThreadRoutine()
 
         completion_token.complete();
     }
+}
+
+void ThreadPool::process_all_jobs()
+{
+    std::unique_lock lock {mutex_};
+    cv_not_empty_.wait(lock, [this] { return jobs_count_ == 0; });
 }
 }  // namespace sand::utils

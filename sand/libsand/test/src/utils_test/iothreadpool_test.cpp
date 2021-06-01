@@ -57,3 +57,26 @@ TEST_F(IOThreadPoolTest, ManyJobs)
 {
     RunTest(100);
 }
+
+TEST_F(IOThreadPoolTest, ProcessAllJobs)
+{
+    IOThreadPool thread_pool;
+
+    std::mutex mut;
+
+    const int total_jobs = 10;
+    int       done_jobs  = 0;
+
+    for (int i = 0; i != total_jobs; ++i)
+    {
+        thread_pool.add_job([&](const CompletionToken &) {
+            {
+                std::lock_guard<std::mutex> lock {mut};
+                ++done_jobs;
+            }
+        });
+    }
+
+    thread_pool.process_all_jobs();
+    EXPECT_EQ(total_jobs, done_jobs);
+}

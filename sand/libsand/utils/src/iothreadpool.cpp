@@ -66,6 +66,11 @@ void IOThreadPool::ThreadRoutine()
         auto [job, completion_token] = std::move(pending_jobs_.front());
         pending_jobs_.pop();
 
+        if (pending_jobs_.empty())
+        {
+            cv_not_empty_.notify_all();
+        }
+
         lock.unlock();
 
         if (!completion_token.is_cancelled())
@@ -75,5 +80,11 @@ void IOThreadPool::ThreadRoutine()
 
         completion_token.complete();
     }
+}
+
+void IOThreadPool::process_all_jobs()
+{
+    std::unique_lock lock {mutex_};
+    cv_not_empty_.wait(lock, [this] { return pending_jobs_.empty(); });
 }
 }  // namespace sand::utils

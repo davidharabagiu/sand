@@ -11,4 +11,8 @@ CompletionToken MainExecuter::add_job(Job &&job, Priority /*priority*/)
     completion_token.complete();
     return completion_token;
 }
+
+void MainExecuter::process_all_jobs()
+{
+}
 }  // namespace sand::utils

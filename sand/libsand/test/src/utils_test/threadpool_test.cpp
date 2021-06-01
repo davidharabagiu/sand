@@ -175,3 +175,28 @@ TEST_F(ThreadPoolTest, DifferentPriorities_MultipleThreads)
 
     EXPECT_TRUE(done);
 }
+
+TEST_F(ThreadPoolTest, ProcessAllJobs)
+{
+    ThreadPool thread_pool {8};
+
+    std::mutex mut;
+
+    const int total_jobs = 10;
+    int       done_jobs  = 0;
+
+    for (int i = 0; i != total_jobs; ++i)
+    {
+        thread_pool.add_job(
+            [&](const CompletionToken &) {
+                {
+                    std::lock_guard<std::mutex> lock {mut};
+                    ++done_jobs;
+                }
+            },
+            ThreadPool::default_priority);
+    }
+
+    thread_pool.process_all_jobs();
+    EXPECT_EQ(total_jobs, done_jobs);
+}

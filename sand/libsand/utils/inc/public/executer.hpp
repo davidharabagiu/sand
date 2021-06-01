@@ -15,6 +15,7 @@ public:
 
     virtual ~Executer()                                                              = default;
     virtual CompletionToken add_job(Job &&job, Priority priority = default_priority) = 0;
+    virtual void            process_all_jobs()                                       = 0;
 
     static constexpr Priority default_priority = 0;
 };

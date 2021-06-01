@@ -11,6 +11,7 @@ class ExecuterMock : public Executer
 {
 public:
     MOCK_METHOD(CompletionToken, add_job, (Job &&, Priority), (override));
+    MOCK_METHOD(void, process_all_jobs, (), (override));
 };
 
 #endif  // SAND_TEST_EXECUTER_MOCK_HPP_
