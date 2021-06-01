@@ -703,6 +703,12 @@ void FileLocatorFlowImpl::handle_confirm_transfer(
         }
         else
         {
+            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+            reply->request_id  = msg.request_id;
+            reply->status_code = protocol::StatusCode::OK;
+            wait_for_reply_confirmation(
+                protocol_message_handler_->send_reply(from, std::move(reply)), reply->request_id);
+
             std::lock_guard lock {mutex_};
             confirm_tx_routing_table_.erase(msg.offer_id);
             listener_group_.notify(
@@ -975,11 +981,12 @@ void FileLocatorFlowImpl::forward_confirm_transfer_message(
     reply->status_code         = protocol::StatusCode::OK;
 
     {
-        std::lock_guard lock {mutex_};
+        std::unique_lock lock {mutex_};
 
         auto it = confirm_tx_routing_table_.find(msg.offer_id);
         if (it == confirm_tx_routing_table_.end())
         {
+            lock.unlock();
             LOG(INFO) << "Routing table entry not found for offer_id " << msg.offer_id;
             reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
             wait_for_reply_confirmation(
