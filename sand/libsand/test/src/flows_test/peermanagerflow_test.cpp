@@ -36,15 +36,14 @@ protected:
         dnl_config_loader_ = new NiceMock<DNLConfigLoaderMock>();
         dnl_config_ =
             std::make_shared<DNLConfig>(std::unique_ptr<DNLConfigLoader>(dnl_config_loader_));
-        executer_    = std::make_shared<ThreadPool>();
-        io_executer_ = std::make_shared<IOThreadPool>();
-        listener_    = std::make_shared<NiceMock<PeerManagerFlowListenerMock>>();
+        executer_ = std::make_shared<ThreadPool>();
+        listener_ = std::make_shared<NiceMock<PeerManagerFlowListenerMock>>();
     }
 
     std::unique_ptr<PeerManagerFlowImpl> make_peer_manager()
     {
         auto flow = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
-            inbound_request_dispatcher_, dnl_config_, executer_, io_executer_, 0);
+            inbound_request_dispatcher_, dnl_config_, executer_, executer_, 0);
         return flow;
     }
 
@@ -72,7 +71,6 @@ protected:
     DNLConfigLoaderMock *                        dnl_config_loader_;
     std::shared_ptr<DNLConfig>                   dnl_config_;
     std::shared_ptr<Executer>                    executer_;
-    std::shared_ptr<Executer>                    io_executer_;
     std::shared_ptr<PeerManagerFlowListenerMock> listener_;
     std::chrono::milliseconds                    timeout_ {100};
     Random                                       rng_;
@@ -553,7 +551,7 @@ TEST_F(PeerManagerFlowTest, HandlePush)
         .Times(1);
 
     // Process all messages
-    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+    executer_->process_all_jobs();
 
     auto f = peer_manager->get_peers(1);
     EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
@@ -588,7 +586,7 @@ TEST_F(PeerManagerFlowTest, HandleBye)
     inbound_request_dispatcher_->on_message_received(peer, msg1);
 
     // Process all messages
-    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+    executer_->process_all_jobs();
 
     ByeMessage msg2;
     msg2.request_id = rng_.next<RequestId>();
@@ -598,7 +596,7 @@ TEST_F(PeerManagerFlowTest, HandleBye)
     inbound_request_dispatcher_->on_message_received(peer, msg2);
 
     // Process all messages
-    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+    executer_->process_all_jobs();
 
     auto f = peer_manager->get_peers(1);
     EXPECT_EQ(f.wait_for(timeout_), std::future_status::ready);
@@ -636,7 +634,7 @@ TEST_F(PeerManagerFlowTest, HandlePing)
     inbound_request_dispatcher_->on_message_received(peer, msg);
 
     // Process all messages
-    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+    executer_->process_all_jobs();
 }
 
 TEST_F(PeerManagerFlowTest, HandlePull)
@@ -673,7 +671,7 @@ TEST_F(PeerManagerFlowTest, HandlePull)
         inbound_request_dispatcher_->on_message_received(peers[i], push_messages[i]);
 
         // Process all messages
-        std::this_thread::sleep_for(std::chrono::milliseconds {25});
+        executer_->process_all_jobs();
     }
 
     ON_CALL(*protocol_message_handler_,
@@ -699,7 +697,7 @@ TEST_F(PeerManagerFlowTest, HandlePull)
     inbound_request_dispatcher_->on_message_received(pull_message_src, pull_message);
 
     // Process all messages
-    std::this_thread::sleep_for(std::chrono::milliseconds {25});
+    executer_->process_all_jobs();
 }
 
 TEST_F(PeerManagerFlowTest, NotifiesStateChanges)
@@ -845,13 +843,13 @@ TEST_F(PeerManagerFlowTest, PreloadPeers)
     }
 
     auto peer_manager = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
-        inbound_request_dispatcher_, dnl_config_, executer_, io_executer_, 10);
+        inbound_request_dispatcher_, dnl_config_, executer_, executer_, 10);
     peer_manager->start();
     EXPECT_TRUE(testutils::wait_for(
         [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
 
     // Wait a little bit more until are PUSH messages are sent
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    executer_->process_all_jobs();
 
     Mock::VerifyAndClearExpectations(protocol_message_handler_.get());
 

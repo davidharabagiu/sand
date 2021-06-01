@@ -37,15 +37,14 @@ protected:
         dnl_config_loader_ = new NiceMock<DNLConfigLoaderMock>;
         dnl_config_ =
             std::make_shared<DNLConfig>(std::unique_ptr<DNLConfigLoader>(dnl_config_loader_));
-        thread_pool_    = std::make_shared<ThreadPool>();
-        io_thread_pool_ = std::make_shared<IOThreadPool>();
-        listener_       = std::make_shared<NiceMock<DNLFlowListenerMock>>();
+        thread_pool_ = std::make_shared<ThreadPool>();
+        listener_    = std::make_shared<NiceMock<DNLFlowListenerMock>>();
     }
 
     std::unique_ptr<DNLFlow> make_dnl_flow(int sync_period_ms = 0)
     {
         return std::make_unique<DNLFlowImpl>(protocol_message_handler_, inbound_request_dispatcher_,
-            dnl_config_, thread_pool_, io_thread_pool_, sync_period_ms);
+            dnl_config_, thread_pool_, thread_pool_, sync_period_ms);
     }
 
     std::shared_ptr<ProtocolMessageHandlerMock> protocol_message_handler_;
@@ -53,7 +52,6 @@ protected:
     DNLConfigLoaderMock *                       dnl_config_loader_;
     std::shared_ptr<DNLConfig>                  dnl_config_;
     std::shared_ptr<Executer>                   thread_pool_;
-    std::shared_ptr<Executer>                   io_thread_pool_;
     std::shared_ptr<DNLFlowListenerMock>        listener_;
     Random                                      rng_;
 };
@@ -88,7 +86,7 @@ TEST_F(DNLFlowTest, HandlePing)
         .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
     inbound_request_dispatcher_->on_message_received(peer1, msg);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, HandlePing_FlowNotRunning)
@@ -103,7 +101,7 @@ TEST_F(DNLFlowTest, HandlePing_FlowNotRunning)
     EXPECT_CALL(*protocol_message_handler_, send_reply(peer1, _)).Times(0);
     inbound_request_dispatcher_->on_message_received(peer1, msg);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, HandlePush)
@@ -129,7 +127,7 @@ TEST_F(DNLFlowTest, HandlePush)
 
     inbound_request_dispatcher_->on_message_received(peer1, push);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(listener_.get()));
 
@@ -153,7 +151,7 @@ TEST_F(DNLFlowTest, HandlePush)
 
     inbound_request_dispatcher_->on_message_received(peer2, pull);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, HandlePush_NotNotifiedASecondTime)
@@ -178,7 +176,7 @@ TEST_F(DNLFlowTest, HandlePush_NotNotifiedASecondTime)
 
     inbound_request_dispatcher_->on_message_received(peer1, push);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
 
     EXPECT_CALL(*protocol_message_handler_,
@@ -190,7 +188,7 @@ TEST_F(DNLFlowTest, HandlePush_NotNotifiedASecondTime)
 
     inbound_request_dispatcher_->on_message_received(peer1, push);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, HandleBye)
@@ -216,7 +214,7 @@ TEST_F(DNLFlowTest, HandleBye)
 
     inbound_request_dispatcher_->on_message_received(peer1, push);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(listener_.get()));
 
@@ -227,7 +225,7 @@ TEST_F(DNLFlowTest, HandleBye)
 
     inbound_request_dispatcher_->on_message_received(peer1, bye);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(listener_.get()));
 
     PullMessage pull;
@@ -249,7 +247,7 @@ TEST_F(DNLFlowTest, HandleBye)
 
     inbound_request_dispatcher_->on_message_received(peer2, pull);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, HandlePull_LessThanAvailable)
@@ -278,7 +276,7 @@ TEST_F(DNLFlowTest, HandlePull_LessThanAvailable)
             .Times(1)
             .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
         inbound_request_dispatcher_->on_message_received(push_msg_peers[i], push_messages[i]);
-        std::this_thread::sleep_for(sleep_duration);
+        thread_pool_->process_all_jobs();
     }
 
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
@@ -309,7 +307,7 @@ TEST_F(DNLFlowTest, HandlePull_LessThanAvailable)
 
     inbound_request_dispatcher_->on_message_received(pull_msg_peer, pull);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, HandlePull_MoreThanAvailable)
@@ -338,7 +336,7 @@ TEST_F(DNLFlowTest, HandlePull_MoreThanAvailable)
             .Times(1)
             .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
         inbound_request_dispatcher_->on_message_received(push_msg_peers[i], push_messages[i]);
-        std::this_thread::sleep_for(sleep_duration);
+        thread_pool_->process_all_jobs();
     }
 
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
@@ -369,7 +367,7 @@ TEST_F(DNLFlowTest, HandlePull_MoreThanAvailable)
 
     inbound_request_dispatcher_->on_message_received(pull_msg_peer, pull);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, DNLSync_ForeignDNLSyncMessageSource)
@@ -410,7 +408,7 @@ TEST_F(DNLFlowTest, DNLSync_ForeignDNLSyncMessageSource)
             .Times(1)
             .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
         inbound_request_dispatcher_->on_message_received(initial_peers[i], push_messages[i]);
-        std::this_thread::sleep_for(sleep_duration);
+        thread_pool_->process_all_jobs();
     }
 
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
@@ -444,7 +442,7 @@ TEST_F(DNLFlowTest, DNLSync_ForeignDNLSyncMessageSource)
 
     inbound_request_dispatcher_->on_message_received(other_dnl_addr, sync);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
 
     PullMessage pull;
@@ -479,7 +477,7 @@ TEST_F(DNLFlowTest, DNLSync_ForeignDNLSyncMessageSource)
 
     inbound_request_dispatcher_->on_message_received(pull_src_addr, pull);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 TEST_F(DNLFlowTest, DNLSync_LocalSyncTimerDisabled)
@@ -521,7 +519,7 @@ TEST_F(DNLFlowTest, DNLSync_LocalSyncTimerDisabled)
             .Times(1)
             .WillOnce([](...) { return std::async(std::launch::deferred, [] { return true; }); });
         inbound_request_dispatcher_->on_message_received(initial_peers[i], push_messages[i]);
-        std::this_thread::sleep_for(sleep_duration);
+        thread_pool_->process_all_jobs();
     }
 
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
@@ -556,7 +554,7 @@ TEST_F(DNLFlowTest, DNLSync_LocalSyncTimerDisabled)
 
     inbound_request_dispatcher_->on_message_received(other_dnl_addr, sync);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
     EXPECT_TRUE(Mock::VerifyAndClearExpectations(protocol_message_handler_.get()));
 
     PullMessage pull;
@@ -606,7 +604,7 @@ TEST_F(DNLFlowTest, DNLSync_LocalSyncTimerDisabled)
 
     inbound_request_dispatcher_->on_message_received(pull_src_addr, pull);
 
-    std::this_thread::sleep_for(sleep_duration);
+    thread_pool_->process_all_jobs();
 }
 
 MATCHER(DNLSyncEntryEq_NoTS, "Equality comparison for DNLSync::Entry, timestamp ignored")
