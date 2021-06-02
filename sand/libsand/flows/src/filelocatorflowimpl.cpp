@@ -12,6 +12,7 @@
 #include "searchhandleimpl.hpp"
 #include "secretdatainterpreter.hpp"
 #include "transferhandleimpl.hpp"
+#include "unused.hpp"
 
 namespace sand::flows
 {
@@ -251,23 +252,23 @@ void FileLocatorFlowImpl::search_loop(
         });
     };
 
-    bool                              from_cache = true;
+    bool from_cache = false;
+
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
     std::vector<network::IPv4Address> cached_peers;
 
     {
         std::lock_guard lock {mutex_};
         auto            search_cache_it = search_cache_.find(search_handle.data()->file_hash);
-        if (search_cache_it == search_cache_.end() || search_cache_it->second.empty())
+        if (search_cache_it != search_cache_.end() && !search_cache_it->second.empty())
         {
-            from_cache = false;
-        }
-        else
-        {
+            from_cache = true;
             cached_peers.resize(search_cache_it->second.size());
             std::copy(search_cache_it->second.cbegin(), search_cache_it->second.cend(),
                 cached_peers.begin());
         }
     }
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
 
     if (!from_cache)
     {
@@ -297,6 +298,7 @@ void FileLocatorFlowImpl::search_loop(
             });
         });
     }
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
     else
     {
         // Send to a random element from cache
@@ -334,6 +336,7 @@ void FileLocatorFlowImpl::search_loop(
             });
         });
     }
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
 }
 
 bool FileLocatorFlowImpl::cancel_search(const SearchHandle &search_handle)
@@ -543,7 +546,9 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
             if (ongoing_search_it != ongoing_searches_.end())
             {
                 forward = false;
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
                 search_cache_[ongoing_search_it->second.data()->file_hash].emplace(from);
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
             }
             else
             {
@@ -559,8 +564,10 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
                     return;
                 }
 
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
                 std::string file_hash = std::get<1>(routing_table_it->second);
                 search_cache_[file_hash].emplace(from);
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
             }
         }
 
@@ -606,6 +613,7 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
 void FileLocatorFlowImpl::handle_uncache(
     network::IPv4Address from, const protocol::UncacheMessage &msg)
 {
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
     add_job(executer_, [this, from, msg](const auto & /*completion_token*/) {
         {
             std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
@@ -678,6 +686,11 @@ void FileLocatorFlowImpl::handle_uncache(
             });
         });
     });
+#else   // ENABLE_EXPERIMENTAL_SEARCH_CACHE
+    UNUSED(from);
+    UNUSED(msg);
+    LOG(INFO) << "Search caching disabled. Ignoring request.";
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
 }
 
 void FileLocatorFlowImpl::handle_confirm_transfer(
@@ -816,7 +829,8 @@ void FileLocatorFlowImpl::forward_search_message_loop(
 
     std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
 
-    bool                              from_cache = false;
+    bool from_cache = false;
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
     std::vector<network::IPv4Address> cached_peers;
 
     {
@@ -830,6 +844,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
                 cached_peers.begin());
         }
     }
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
 
     if (!from_cache)
     {
@@ -869,6 +884,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
             });
         });
     }
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
     else
     {
         // Send to a random element from cache
@@ -917,6 +933,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
             });
         });
     }
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
 }
 
 void FileLocatorFlowImpl::forward_offer_message(

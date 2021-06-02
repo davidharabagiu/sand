@@ -112,7 +112,9 @@ private:
                                                       offer_routing_table_;
     std::map<protocol::OfferId, network::IPv4Address> confirm_tx_routing_table_;
 
+#ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
     std::map<std::string, std::set<network::IPv4Address>> search_cache_;
+#endif  // ENABLE_EXPERIMENTAL_SEARCH_CACHE
 
     std::set<std::shared_ptr<utils::Timer>> timeouts_;
 
