@@ -8,6 +8,8 @@
 #include "inboundrequestdispatcher.hpp"
 #include "peermanagerflow.hpp"
 #include "protocolmessagehandler.hpp"
+#include "searchhandleimpl.hpp"
+#include "transferhandleimpl.hpp"
 
 namespace sand::flows
 {
@@ -99,7 +101,7 @@ void FileTransferFlowImpl::start()
         std::lock_guard lock {mutex_};
         if (state_ != State::IDLE)
         {
-            LOG(WARNING) << "FileTransferFlow cannot be started from state " << to_string(state);
+            LOG(WARNING) << "FileTransferFlow cannot be started from state " << to_string(state_);
             return;
         }
     }
@@ -112,56 +114,57 @@ void FileTransferFlowImpl::stop()
     stop_impl();
 }
 
-std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandle &search_handle)
+std::future<TransferHandle> FileTransferFlowImpl::create_offer(
+    const SearchHandle & /*search_handle*/)
 {
-    return std::future<TransferHandle>();
+    return {};
 }
 
-bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
-{
-    return false;
-}
-
-bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
+bool FileTransferFlowImpl::send_file(const TransferHandle & /*transfer_handle*/)
 {
     return false;
 }
 
-bool FileTransferFlowImpl::cancel_transfer(const TransferHandle &transfer_handle)
+bool FileTransferFlowImpl::receive_file(const TransferHandle & /*transfer_handle*/)
 {
     return false;
 }
 
-void FileTransferFlowImpl::on_state_changed(PeerManagerFlow::State new_state)
+bool FileTransferFlowImpl::cancel_transfer(const TransferHandle & /*transfer_handle*/)
+{
+    return false;
+}
+
+void FileTransferFlowImpl::on_state_changed(PeerManagerFlow::State /*new_state*/)
 {
 }
 
-void FileTransferFlowImpl::on_peer_disconnected(network::IPv4Address address)
+void FileTransferFlowImpl::on_peer_disconnected(network::IPv4Address /*address*/)
 {
 }
 
 void FileTransferFlowImpl::handle_request_proxy(
-    network::IPv4Address from, const protocol::RequestProxyMessage &msg)
+    network::IPv4Address /*from*/, const protocol::RequestProxyMessage & /*msg*/)
 {
 }
 
 void FileTransferFlowImpl::handle_init_upload(
-    network::IPv4Address from, const protocol::InitUploadMessage &msg)
+    network::IPv4Address /*from*/, const protocol::InitUploadMessage & /*msg*/)
 {
 }
 
 void FileTransferFlowImpl::handle_upload(
-    network::IPv4Address from, const protocol::UploadMessage &msg)
+    network::IPv4Address /*from*/, const protocol::UploadMessage & /*msg*/)
 {
 }
 
 void FileTransferFlowImpl::handle_fetch(
-    network::IPv4Address from, const protocol::FetchMessage &msg)
+    network::IPv4Address /*from*/, const protocol::FetchMessage & /*msg*/)
 {
 }
 
 void FileTransferFlowImpl::handle_init_download(
-    network::IPv4Address from, const protocol::InitDownloadMessage &msg)
+    network::IPv4Address /*from*/, const protocol::InitDownloadMessage & /*msg*/)
 {
 }
 

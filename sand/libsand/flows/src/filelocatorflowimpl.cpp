@@ -4,7 +4,7 @@
 
 #include <glog/logging.h>
 
-#include "filehashcalculator.hpp"
+#include "filehashinterpreter.hpp"
 #include "filestorage.hpp"
 #include "inboundrequestdispatcher.hpp"
 #include "peeraddressprovider.hpp"
@@ -35,7 +35,7 @@ FileLocatorFlowImpl::FileLocatorFlowImpl(
     std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher,
     std::shared_ptr<PeerAddressProvider>              peer_address_provider,
     std::shared_ptr<storage::FileStorage>             file_storage,
-    std::unique_ptr<storage::FileHashCalculator>      file_hash_calculator,
+    std::unique_ptr<storage::FileHashInterpreter>     file_hash_interpreter,
     std::shared_ptr<protocol::SecretDataInterpreter>  secret_data_interpreter,
     std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer,
     std::string public_key, std::string private_key, int search_propagation_degree,
@@ -44,7 +44,7 @@ FileLocatorFlowImpl::FileLocatorFlowImpl(
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
     , peer_address_provider_ {std::move(peer_address_provider)}
     , file_storage_ {std::move(file_storage)}
-    , file_hash_calculator_ {std::move(file_hash_calculator)}
+    , file_hash_interpreter_ {std::move(file_hash_interpreter)}
     , secret_data_interpreter_ {std::move(secret_data_interpreter)}
     , executer_ {std::move(executer)}
     , io_executer_ {std::move(io_executer)}
@@ -179,7 +179,9 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
     protocol::SearchMessage msg;
     msg.search_id         = rng_.next<protocol::SearchId>();
     msg.sender_public_key = public_key_;
-    if (!file_hash_calculator_->decode(file_hash, msg.file_hash.data()))
+    bool decode_ok;
+    std::tie(msg.file_hash, decode_ok) = file_hash_interpreter_->decode(file_hash);
+    if (!decode_ok)
     {
         LOG(WARNING) << "Invalid file hash provided";
         return SearchHandle();
@@ -491,7 +493,7 @@ void FileLocatorFlowImpl::handle_search(
     network::IPv4Address from, const protocol::SearchMessage &msg)
 {
     add_job(executer_, [this, from, msg](const auto & /*completion_token*/) {
-        std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
+        std::string file_hash = file_hash_interpreter_->encode(msg.file_hash);
         if (file_hash.empty())
         {
             LOG(WARNING) << "Received Search message with invalid file hash";
@@ -616,10 +618,10 @@ void FileLocatorFlowImpl::handle_uncache(
 #ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
     add_job(executer_, [this, from, msg](const auto & /*completion_token*/) {
         {
-            std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
+            std::string file_hash = file_hash_interpreter_->encode(msg.file_hash);
             if (file_hash.empty())
             {
-                LOG(WARNING) << "Cannot decode file hash";
+                LOG(WARNING) << "Cannot encode file hash";
                 return;
             }
 
@@ -817,7 +819,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
             {
                 add_job(executer_, [this, msg, from](const auto & /*completion_token*/) {
                     add_offer_routing_table_entry(
-                        from, msg.search_id, file_hash_calculator_->encode(msg.file_hash.data()));
+                        from, msg.search_id, file_hash_interpreter_->encode(msg.file_hash));
                 });
             }
             else
@@ -827,7 +829,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
         });
     };
 
-    std::string file_hash = file_hash_calculator_->encode(msg.file_hash.data());
+    std::string file_hash = file_hash_interpreter_->encode(msg.file_hash);
 
     bool from_cache = false;
 #ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE

@@ -29,7 +29,7 @@ namespace sand::storage
 {
 // Forward declarations
 class FileStorage;
-class FileHashCalculator;
+class FileHashInterpreter;
 }  // namespace sand::storage
 
 namespace sand::flows
@@ -45,7 +45,7 @@ public:
         std::shared_ptr<InboundRequestDispatcher>        inbound_request_dispatcher,
         std::shared_ptr<PeerAddressProvider>             peer_address_provider,
         std::shared_ptr<storage::FileStorage>            file_storage,
-        std::unique_ptr<storage::FileHashCalculator>     file_hash_calculator,
+        std::unique_ptr<storage::FileHashInterpreter>    file_hash_interpreter,
         std::shared_ptr<protocol::SecretDataInterpreter> secret_data_interpreter,
         std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer,
         std::string public_key, std::string private_key, int search_propagation_degree,
@@ -122,7 +122,7 @@ private:
     const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;
     const std::shared_ptr<PeerAddressProvider>              peer_address_provider_;
     const std::shared_ptr<storage::FileStorage>             file_storage_;
-    const std::unique_ptr<storage::FileHashCalculator>      file_hash_calculator_;
+    const std::unique_ptr<storage::FileHashInterpreter>     file_hash_interpreter_;
     const std::shared_ptr<protocol::SecretDataInterpreter>  secret_data_interpreter_;
     const std::shared_ptr<utils::Executer>                  executer_;
     const std::shared_ptr<utils::Executer>                  io_executer_;
