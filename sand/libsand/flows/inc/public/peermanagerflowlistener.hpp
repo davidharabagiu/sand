@@ -11,6 +11,7 @@ public:
     virtual ~PeerManagerFlowListener() = default;
 
     virtual void on_state_changed(PeerManagerFlow::State new_state) = 0;
+    virtual void on_peer_disconnected(network::IPv4Address address) = 0;
 };
 }  // namespace sand::flows
 

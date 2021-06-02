@@ -373,6 +373,7 @@ void PeerManagerFlowImpl::handle_bye(
         {
             peers_.erase(it);
         }
+        listener_group_.notify(&PeerManagerFlowListener::on_peer_disconnected, from);
     });
 }
 
