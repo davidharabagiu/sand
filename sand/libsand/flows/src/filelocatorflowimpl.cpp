@@ -124,7 +124,7 @@ void FileLocatorFlowImpl::stop_impl()
 
     if (state != State::RUNNING)
     {
-        LOG(WARNING) << "FileLocatorFlow cannot be started from state " << to_string(state);
+        LOG(WARNING) << "FileLocatorFlow cannot be stopped from state " << to_string(state);
         return;
     }
 

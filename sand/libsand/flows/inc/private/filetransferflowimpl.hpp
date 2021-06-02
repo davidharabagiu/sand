@@ -2,8 +2,11 @@
 #define SAND_FLOWS_FILETRANSFERFLOWIMPL_HPP_
 
 #include <memory>
+#include <mutex>
+#include <set>
 
 #include "address.hpp"
+#include "completiontoken.hpp"
 #include "filetransferflow.hpp"
 #include "filetransferflowlistener.hpp"
 #include "listenergroup.hpp"
@@ -51,6 +54,8 @@ public:
         std::shared_ptr<storage::FileStorage> file_storage, std::shared_ptr<crypto::AESCipher> aes,
         std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer);
 
+    ~FileTransferFlowImpl() override;
+
     // From FileTransferFlow
     bool  register_listener(std::shared_ptr<FileTransferFlowListener> listener) override;
     bool  unregister_listener(std::shared_ptr<FileTransferFlowListener> listener) override;
@@ -73,6 +78,9 @@ private:
     void handle_fetch(network::IPv4Address from, const protocol::FetchMessage &msg);
     void handle_init_download(network::IPv4Address from, const protocol::InitDownloadMessage &msg);
 
+    void set_state(State new_state);
+    void stop_impl();
+
 private:
     const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
     const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;
@@ -82,6 +90,9 @@ private:
     const std::shared_ptr<utils::Executer>                  executer_;
     const std::shared_ptr<utils::Executer>                  io_executer_;
     utils::ListenerGroup<FileTransferFlowListener>          listener_group_;
+    std::set<utils::CompletionToken>                        running_jobs_;
+    State                                                   state_;
+    mutable std::mutex                                      mutex_;
 };
 }  // namespace sand::flows
 
