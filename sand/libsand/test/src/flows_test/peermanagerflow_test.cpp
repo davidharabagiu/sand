@@ -574,6 +574,7 @@ TEST_F(PeerManagerFlowTest, HandleBye)
 
     auto peer_manager = make_peer_manager();
     peer_manager->start();
+    peer_manager->register_listener(listener_);
     EXPECT_TRUE(testutils::wait_for(
         [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));
 
@@ -592,6 +593,7 @@ TEST_F(PeerManagerFlowTest, HandleBye)
     EXPECT_CALL(*protocol_message_handler_,
         send_reply(peer, Pointee(Field(&BasicReply::request_id, msg2.request_id))))
         .Times(0);
+    EXPECT_CALL(*listener_, on_peer_disconnected(peer)).Times(1);
     inbound_request_dispatcher_->on_message_received(peer, msg2);
 
     // Process all messages
