@@ -7,17 +7,13 @@
 
 #include "address.hpp"
 #include "completiontoken.hpp"
+#include "executer.hpp"
 #include "filetransferflow.hpp"
 #include "filetransferflowlistener.hpp"
 #include "listenergroup.hpp"
 #include "messages.hpp"
 #include "peermanagerflowlistener.hpp"
-
-namespace sand::utils
-{
-// Forward declarations
-class Executer;
-}  // namespace sand::utils
+#include "random.hpp"
 
 namespace sand::crypto
 {
@@ -34,25 +30,27 @@ class ProtocolMessageHandler;
 namespace sand::storage
 {
 class FileStorage;
+class FileHashInterpreter;
 }  // namespace sand::storage
 
 namespace sand::flows
 {
 // Forward declarations
 class InboundRequestDispatcher;
-class PeerManagerFlow;
+class PeerAddressProvider;
 
 class FileTransferFlowImpl
     : public FileTransferFlow
-    , public PeerManagerFlowListener
     , public std::enable_shared_from_this<FileTransferFlowImpl>
 {
 public:
     FileTransferFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
-        std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
-        std::shared_ptr<PeerManagerFlow>          peer_address_provider,
-        std::shared_ptr<storage::FileStorage> file_storage, std::shared_ptr<crypto::AESCipher> aes,
-        std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer);
+        std::shared_ptr<InboundRequestDispatcher>     inbound_request_dispatcher,
+        std::shared_ptr<PeerAddressProvider>          peer_address_provider,
+        std::shared_ptr<storage::FileStorage>         file_storage,
+        std::shared_ptr<storage::FileHashInterpreter> file_hash_interpreter,
+        std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
+        std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size);
 
     ~FileTransferFlowImpl() override;
 
@@ -67,10 +65,6 @@ public:
     bool                        receive_file(const TransferHandle &transfer_handle) override;
     bool                        cancel_transfer(const TransferHandle &transfer_handle) override;
 
-    // From PeerManagerFlowListener
-    void on_state_changed(PeerManagerFlow::State new_state) override;
-    void on_peer_disconnected(network::IPv4Address address) override;
-
 private:
     void handle_request_proxy(network::IPv4Address from, const protocol::RequestProxyMessage &msg);
     void handle_init_upload(network::IPv4Address from, const protocol::InitUploadMessage &msg);
@@ -78,19 +72,26 @@ private:
     void handle_fetch(network::IPv4Address from, const protocol::FetchMessage &msg);
     void handle_init_download(network::IPv4Address from, const protocol::InitDownloadMessage &msg);
 
-    void set_state(State new_state);
-    void stop_impl();
+    void                   set_state(State new_state);
+    void                   stop_impl();
+    utils::CompletionToken add_job(
+        const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
 
 private:
     const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
     const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;
-    const std::shared_ptr<PeerManagerFlow>                  peer_address_provider_;
+    const std::shared_ptr<PeerAddressProvider>              peer_address_provider_;
     const std::shared_ptr<storage::FileStorage>             file_storage_;
+    const std::shared_ptr<storage::FileHashInterpreter>     file_hash_interpreter_;
     const std::shared_ptr<crypto::AESCipher>                aes_;
     const std::shared_ptr<utils::Executer>                  executer_;
     const std::shared_ptr<utils::Executer>                  io_executer_;
+    const size_t                                            max_part_size_;
+    const size_t                                            max_chunk_size_;
+    utils::Random                                           rng_;
     utils::ListenerGroup<FileTransferFlowListener>          listener_group_;
     std::set<utils::CompletionToken>                        running_jobs_;
+    std::set<protocol::OfferId>                             outbound_transfers_;
     State                                                   state_;
     mutable std::mutex                                      mutex_;
 };

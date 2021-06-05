@@ -194,7 +194,8 @@ bool PeerManagerFlowImpl::unregister_listener(std::shared_ptr<PeerManagerFlowLis
     return listener_group_.remove(listener);
 }
 
-std::future<std::vector<network::IPv4Address>> PeerManagerFlowImpl::get_peers(int count)
+std::future<std::vector<network::IPv4Address>> PeerManagerFlowImpl::get_peers(
+    int count, const std::set<network::IPv4Address> &exclude)
 {
     auto promise = std::make_shared<std::promise<std::vector<network::IPv4Address>>>();
     auto future  = promise->get_future();
@@ -215,8 +216,8 @@ std::future<std::vector<network::IPv4Address>> PeerManagerFlowImpl::get_peers(in
     auto ping_future = ping_peers();
 
     add_job(io_executer_, [this, promise, count = size_t(count),
-                              ping_future = make_shared_future(std::move(ping_future))](
-                              const auto &completion_token) {
+                              ping_future = make_shared_future(std::move(ping_future)),
+                              exclude](const auto &completion_token) mutable {
         ping_future->wait();
         if (completion_token.is_cancelled())
         {
@@ -224,8 +225,9 @@ std::future<std::vector<network::IPv4Address>> PeerManagerFlowImpl::get_peers(in
             return;
         }
 
-        add_job(executer_, [this, promise, count](const auto & /*completion_token*/) {
-            auto peers = pick_peers(count);
+        add_job(executer_, [this, promise, count, exclude = std::move(exclude)](
+                               const auto & /*completion_token*/) {
+            auto peers = pick_peers(count, exclude);
             if (peers.size() >= count)
             {
                 promise->set_value(peers);

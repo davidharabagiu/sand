@@ -11,6 +11,7 @@ class FileStorageMock : public FileStorage
 {
 public:
     MOCK_METHOD(bool, contains, (const std::string &), (const, override));
+    MOCK_METHOD(bool, read_file, (const std::string &, size_t, size_t, uint8_t *), (override));
 };
 
 #endif  // SAND_TEST_FILESTORAGE_MOCK_HPP_

@@ -22,7 +22,7 @@ using OfferId       = uint64_t;
 using Byte          = uint8_t;
 using NodePublicKey = std::string;
 using AHash         = std::array<Byte, 92>;
-using TransferKey   = std::array<Byte, 16>;
+using TransferKey   = std::array<Byte, 32>;
 using PartSize      = uint32_t;
 using FileSize      = uint64_t;
 
@@ -53,7 +53,8 @@ enum class StatusCode : uint8_t
     RESOURCE_NOT_AVAILABLE = 2,
     DUPLICATION            = 3,
     FOREIGN_DNL_ADDRESS    = 4,
-    CANNOT_FORWARD         = 5
+    CANNOT_FORWARD         = 5,
+    DENY                   = 6
 };
 
 struct Message

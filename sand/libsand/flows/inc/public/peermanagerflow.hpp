@@ -3,12 +3,14 @@
 
 #include <memory>
 
+#include "peeraddressprovider.hpp"
+
 namespace sand::flows
 {
 // Forward declarations
 class PeerManagerFlowListener;
 
-class PeerManagerFlow
+class PeerManagerFlow : public PeerAddressProvider
 {
 public:
     enum class State

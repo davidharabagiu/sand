@@ -28,9 +28,7 @@ namespace sand::flows
 class InboundRequestDispatcher;
 class DNLConfig;
 
-class PeerManagerFlowImpl
-    : public PeerAddressProvider
-    , public PeerManagerFlow
+class PeerManagerFlowImpl : public PeerManagerFlow
 {
 public:
     PeerManagerFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
@@ -39,12 +37,13 @@ public:
         std::shared_ptr<utils::Executer> io_executer, int initial_peer_count);
     ~PeerManagerFlowImpl() override;
 
-    std::future<std::vector<network::IPv4Address>> get_peers(int count) override;
-    int                                            get_peers_count() const override;
-    void                                           remove_peer(network::IPv4Address addr) override;
-    void                                           start() override;
-    void                                           stop() override;
-    [[nodiscard]] State                            state() const override;
+    std::future<std::vector<network::IPv4Address>> get_peers(
+        int count, const std::set<network::IPv4Address> &exclude = {}) override;
+    int                 get_peers_count() const override;
+    void                remove_peer(network::IPv4Address addr) override;
+    void                start() override;
+    void                stop() override;
+    [[nodiscard]] State state() const override;
     bool register_listener(std::shared_ptr<PeerManagerFlowListener> listener) override;
     bool unregister_listener(std::shared_ptr<PeerManagerFlowListener> listener) override;
 

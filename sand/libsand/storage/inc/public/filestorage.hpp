@@ -8,8 +8,12 @@ namespace sand::storage
 class FileStorage
 {
 public:
-    virtual ~FileStorage()                                                  = default;
+    virtual ~FileStorage() = default;
+
     [[nodiscard]] virtual bool contains(const std::string &file_hash) const = 0;
+
+    virtual bool read_file(
+        const std::string &file_hash, size_t offset, size_t amount, uint8_t *out) = 0;
 };
 }  // namespace sand::storage
 
