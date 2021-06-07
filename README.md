@@ -1,6 +1,6 @@
 # SAND
 
-This repository contains the specification and implementation of the SAND protocol. SAND is a recursive acronym for SAND Anonymous Distribution. It is a protocol which can be used for distributing large files on the internet, built around the principle of anonimiy. You can find out more about it by reading the white paper.
+This repository contains the specification and implementation of the SAND protocol. SAND is a recursive acronym for SAND Anonymous Distribution. It is a protocol which can be used for distributing large files on the internet, built around the principle of anonimity. You can find out more about it by reading the white paper.
 
 ## Documentation
 
