@@ -276,8 +276,8 @@ struct RequestLiftProxyMessage : public Message
 {
     PartSize part_size {};
 
-    RequestDropPointMessage()
-        : Message {MessageCode::REQUESTDROPPOINT}
+    RequestLiftProxyMessage()
+        : Message {MessageCode::REQUESTLIFTPROXY}
     {
     }
 

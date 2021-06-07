@@ -82,7 +82,13 @@ void InboundRequestDispatcher::on_message_received(
 }
 
 void InboundRequestDispatcher::on_message_received(
-    network::IPv4Address from, const protocol::RequestProxyMessage &message)
+    network::IPv4Address from, const protocol::RequestDropPointMessage &message)
+{
+    dispatch(from, message);
+}
+
+void InboundRequestDispatcher::on_message_received(
+    network::IPv4Address from, const protocol::RequestLiftProxyMessage &message)
 {
     dispatch(from, message);
 }

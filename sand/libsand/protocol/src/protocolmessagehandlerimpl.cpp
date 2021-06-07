@@ -34,8 +34,10 @@ constexpr void (ProtocolMessageListener::*UncacheMessageNotification)(
     network::IPv4Address, const UncacheMessage &) = &ProtocolMessageListener::on_message_received;
 constexpr void (ProtocolMessageListener::*ConfirmTransferMessageNotification)(network::IPv4Address,
     const ConfirmTransferMessage &)               = &ProtocolMessageListener::on_message_received;
-constexpr void (ProtocolMessageListener::*RequestProxyMessageNotification)(network::IPv4Address,
-    const RequestProxyMessage &)                  = &ProtocolMessageListener::on_message_received;
+constexpr void (ProtocolMessageListener::*RequestDropPointMessageNotification)(network::IPv4Address,
+    const RequestDropPointMessage &)              = &ProtocolMessageListener::on_message_received;
+constexpr void (ProtocolMessageListener::*RequestLiftProxyMessageNotification)(network::IPv4Address,
+    const RequestLiftProxyMessage &)              = &ProtocolMessageListener::on_message_received;
 constexpr void (ProtocolMessageListener::*InitUploadMessageNotification)(network::IPv4Address,
     const InitUploadMessage &)                    = &ProtocolMessageListener::on_message_received;
 constexpr void (ProtocolMessageListener::*UploadMessageNotification)(
@@ -257,10 +259,17 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deser
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
-    const RequestProxyMessage &message)
+    const RequestDropPointMessage &message)
 {
     std::lock_guard<std::mutex> _lock {parent_.mutex_};
-    parent_.listener_group_.notify(RequestProxyMessageNotification, message_source_, message);
+    parent_.listener_group_.notify(RequestDropPointMessageNotification, message_source_, message);
+}
+
+void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
+    const RequestLiftProxyMessage &message)
+{
+    std::lock_guard<std::mutex> _lock {parent_.mutex_};
+    parent_.listener_group_.notify(RequestLiftProxyMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(

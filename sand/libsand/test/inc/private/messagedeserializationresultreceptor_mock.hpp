@@ -21,7 +21,8 @@ public:
     MOCK_METHOD(void, deserialized, (const OfferMessage &), (override));
     MOCK_METHOD(void, deserialized, (const UncacheMessage &), (override));
     MOCK_METHOD(void, deserialized, (const ConfirmTransferMessage &), (override));
-    MOCK_METHOD(void, deserialized, (const RequestProxyMessage &), (override));
+    MOCK_METHOD(void, deserialized, (const RequestDropPointMessage &), (override));
+    MOCK_METHOD(void, deserialized, (const RequestLiftProxyMessage &), (override));
     MOCK_METHOD(void, deserialized, (const InitUploadMessage &), (override));
     MOCK_METHOD(void, deserialized, (const UploadMessage &), (override));
     MOCK_METHOD(void, deserialized, (const FetchMessage &), (override));

@@ -69,7 +69,8 @@ private:
         void deserialized(const OfferMessage &message) override;
         void deserialized(const UncacheMessage &message) override;
         void deserialized(const ConfirmTransferMessage &message) override;
-        void deserialized(const RequestProxyMessage &message) override;
+        void deserialized(const RequestDropPointMessage &message) override;
+        void deserialized(const RequestLiftProxyMessage &message) override;
         void deserialized(const InitUploadMessage &message) override;
         void deserialized(const UploadMessage &message) override;
         void deserialized(const FetchMessage &message) override;

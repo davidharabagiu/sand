@@ -57,10 +57,14 @@ FileTransferFlowImpl::FileTransferFlowImpl(
     , max_chunk_size_ {max_chunk_size}
     , state_ {State::IDLE}
 {
-    inbound_request_dispatcher_->set_callback<protocol::RequestProxyMessage>(
-        [this](auto &&p1, auto &&p2) {
-            handle_request_proxy(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));
-        });
+    inbound_request_dispatcher_->set_callback<protocol::RequestDropPointMessage>([this](auto &&p1,
+                                                                                     auto &&   p2) {
+        handle_request_drop_point(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));
+    });
+    inbound_request_dispatcher_->set_callback<protocol::RequestLiftProxyMessage>([this](auto &&p1,
+                                                                                     auto &&   p2) {
+        handle_request_lift_proxy(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));
+    });
     inbound_request_dispatcher_->set_callback<protocol::InitUploadMessage>(
         [this](auto &&p1, auto &&p2) {
             handle_init_upload(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));
@@ -80,7 +84,8 @@ FileTransferFlowImpl::FileTransferFlowImpl(
 
 FileTransferFlowImpl::~FileTransferFlowImpl()
 {
-    inbound_request_dispatcher_->unset_callback<protocol::RequestProxyMessage>();
+    inbound_request_dispatcher_->unset_callback<protocol::RequestDropPointMessage>();
+    inbound_request_dispatcher_->unset_callback<protocol::RequestLiftProxyMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::InitUploadMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::UploadMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::FetchMessage>();
@@ -197,7 +202,7 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
                         drop_points.size() == number_of_parts - 1 ? file_size % max_part_size_ :
                                                                     max_part_size_);
 
-                    auto request_proxy_msg = std::make_unique<protocol::RequestProxyMessage>();
+                    auto request_proxy_msg = std::make_unique<protocol::RequestDropPointMessage>();
                     request_proxy_msg->request_id = rng_.next<protocol::RequestId>();
                     request_proxy_msg->part_size  = part_size;
 
@@ -555,7 +560,7 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
                     continue;
                 }
 
-                auto request_proxy_msg        = std::make_unique<protocol::RequestProxyMessage>();
+                auto request_proxy_msg = std::make_unique<protocol::RequestLiftProxyMessage>();
                 request_proxy_msg->request_id = rng_.next<protocol::RequestId>();
                 request_proxy_msg->part_size  = next_part_it->part_size;
 
@@ -653,8 +658,13 @@ bool FileTransferFlowImpl::cancel_transfer(const TransferHandle &transfer_handle
     return true;
 }
 
-void FileTransferFlowImpl::handle_request_proxy(
-    network::IPv4Address /*from*/, const protocol::RequestProxyMessage & /*msg*/)
+void FileTransferFlowImpl::handle_request_drop_point(
+    network::IPv4Address /*from*/, const protocol::RequestDropPointMessage & /*msg*/)
+{
+}
+
+void FileTransferFlowImpl::handle_request_lift_proxy(
+    network::IPv4Address /*from*/, const protocol::RequestLiftProxyMessage & /*msg*/)
 {
 }
 

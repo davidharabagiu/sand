@@ -23,7 +23,10 @@ public:
     MOCK_METHOD(void, on_message_received, (IPv4Address, const UncacheMessage &), (override));
     MOCK_METHOD(
         void, on_message_received, (IPv4Address, const ConfirmTransferMessage &), (override));
-    MOCK_METHOD(void, on_message_received, (IPv4Address, const RequestProxyMessage &), (override));
+    MOCK_METHOD(
+        void, on_message_received, (IPv4Address, const RequestDropPointMessage &), (override));
+    MOCK_METHOD(
+        void, on_message_received, (IPv4Address, const RequestLiftProxyMessage &), (override));
     MOCK_METHOD(void, on_message_received, (IPv4Address, const InitUploadMessage &), (override));
     MOCK_METHOD(void, on_message_received, (IPv4Address, const UploadMessage &), (override));
     MOCK_METHOD(void, on_message_received, (IPv4Address, const FetchMessage &), (override));

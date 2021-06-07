@@ -28,7 +28,9 @@ public:
     [[nodiscard]] virtual std::vector<uint8_t> serialize(
         const ConfirmTransferMessage &message) const = 0;
     [[nodiscard]] virtual std::vector<uint8_t> serialize(
-        const RequestProxyMessage &message) const = 0;
+        const RequestDropPointMessage &message) const = 0;
+    [[nodiscard]] virtual std::vector<uint8_t> serialize(
+        const RequestLiftProxyMessage &message) const = 0;
     [[nodiscard]] virtual std::vector<uint8_t> serialize(
         const InitUploadMessage &message) const                                              = 0;
     [[nodiscard]] virtual std::vector<uint8_t> serialize(const UploadMessage &message) const = 0;

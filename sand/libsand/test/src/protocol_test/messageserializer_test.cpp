@@ -214,13 +214,27 @@ TEST_F(MessageSerializerTest, SerializeRequest_ConfirmTransfer)
     EXPECT_EQ(bytes, expected);
 }
 
-TEST_F(MessageSerializerTest, SerializeRequest_RequestProxy)
+TEST_F(MessageSerializerTest, SerializeRequest_RequestDropPoint)
 {
-    RequestProxyMessage req;
+    RequestDropPointMessage req;
     req.request_id = 10;
     req.part_size  = 0xabb355d;
     std::vector<uint8_t> expected {
         0x60, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5d, 0x35, 0xbb, 0x0a};
+
+    MessageSerializerImpl serializer;
+    auto                  bytes = serializer.serialize(req);
+
+    EXPECT_EQ(bytes, expected);
+}
+
+TEST_F(MessageSerializerTest, SerializeRequest_RequestLiftProxy)
+{
+    RequestLiftProxyMessage req;
+    req.request_id = 10;
+    req.part_size  = 0xabb355d;
+    std::vector<uint8_t> expected {
+        0x61, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5d, 0x35, 0xbb, 0x0a};
 
     MessageSerializerImpl serializer;
     auto                  bytes = serializer.serialize(req);
@@ -629,7 +643,7 @@ TEST_F(MessageSerializerTest, DeserializeRequest_ConfirmTransfer_Invalid)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
-TEST_F(MessageSerializerTest, DeserializeRequest_RequestProxy)
+TEST_F(MessageSerializerTest, DeserializeRequest_RequestDropPoint)
 {
     PartSize             part_size = 0xabb355d;
     std::vector<uint8_t> bytes {
@@ -637,10 +651,27 @@ TEST_F(MessageSerializerTest, DeserializeRequest_RequestProxy)
 
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
-        deserialized(Matcher<const RequestProxyMessage &>(
-            AllOf(Field(&RequestProxyMessage::message_code, MessageCode::REQUESTPROXY),
-                Field(&RequestProxyMessage::request_id, 10),
-                Field(&RequestProxyMessage::part_size, part_size)))))
+        deserialized(Matcher<const RequestDropPointMessage &>(
+            AllOf(Field(&RequestDropPointMessage::message_code, MessageCode::REQUESTDROPPOINT),
+                Field(&RequestDropPointMessage::request_id, 10),
+                Field(&RequestDropPointMessage::part_size, part_size)))))
+        .Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
+TEST_F(MessageSerializerTest, DeserializeRequest_RequestLiftProxy)
+{
+    PartSize             part_size = 0xabb355d;
+    std::vector<uint8_t> bytes {
+        0x61, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5d, 0x35, 0xbb, 0x0a};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_,
+        deserialized(Matcher<const RequestLiftProxyMessage &>(
+            AllOf(Field(&RequestLiftProxyMessage::message_code, MessageCode::REQUESTLIFTPROXY),
+                Field(&RequestLiftProxyMessage::request_id, 10),
+                Field(&RequestLiftProxyMessage::part_size, part_size)))))
         .Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);

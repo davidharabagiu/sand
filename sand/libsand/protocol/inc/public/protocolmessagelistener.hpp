@@ -23,7 +23,9 @@ public:
     virtual void on_message_received(
         network::IPv4Address from, const ConfirmTransferMessage &message) = 0;
     virtual void on_message_received(
-        network::IPv4Address from, const RequestProxyMessage &message) = 0;
+        network::IPv4Address from, const RequestDropPointMessage &message) = 0;
+    virtual void on_message_received(
+        network::IPv4Address from, const RequestLiftProxyMessage &message) = 0;
     virtual void on_message_received(
         network::IPv4Address from, const InitUploadMessage &message)                          = 0;
     virtual void on_message_received(network::IPv4Address from, const UploadMessage &message) = 0;

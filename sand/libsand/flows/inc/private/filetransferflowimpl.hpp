@@ -66,7 +66,10 @@ public:
     bool                        cancel_transfer(const TransferHandle &transfer_handle) override;
 
 private:
-    void handle_request_proxy(network::IPv4Address from, const protocol::RequestProxyMessage &msg);
+    void handle_request_drop_point(
+        network::IPv4Address from, const protocol::RequestDropPointMessage &msg);
+    void handle_request_lift_proxy(
+        network::IPv4Address from, const protocol::RequestLiftProxyMessage &msg);
     void handle_init_upload(network::IPv4Address from, const protocol::InitUploadMessage &msg);
     void handle_upload(network::IPv4Address from, const protocol::UploadMessage &msg);
     void handle_fetch(network::IPv4Address from, const protocol::FetchMessage &msg);

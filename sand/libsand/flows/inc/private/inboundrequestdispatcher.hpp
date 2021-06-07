@@ -69,7 +69,9 @@ public:
     void on_message_received(
         network::IPv4Address from, const protocol::ConfirmTransferMessage &message) override;
     void on_message_received(
-        network::IPv4Address from, const protocol::RequestProxyMessage &message) override;
+        network::IPv4Address from, const protocol::RequestDropPointMessage &message) override;
+    void on_message_received(
+        network::IPv4Address from, const protocol::RequestLiftProxyMessage &message) override;
     void on_message_received(
         network::IPv4Address from, const protocol::InitUploadMessage &message) override;
     void on_message_received(

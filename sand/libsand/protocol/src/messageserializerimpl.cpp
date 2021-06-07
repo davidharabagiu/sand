@@ -184,7 +184,16 @@ InputIt deserialize_payload(
 
 template<typename InputIt>
 InputIt deserialize_payload(
-    RequestProxyMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
+    RequestDropPointMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
+{
+    ok        = true;
+    src_begin = serialization::deserialize_field(message.part_size, src_begin, src_end, ok);
+    return src_begin;
+}
+
+template<typename InputIt>
+InputIt deserialize_payload(
+    RequestLiftProxyMessage &message, InputIt src_begin, InputIt src_end, bool &ok)
 {
     ok        = true;
     src_begin = serialization::deserialize_field(message.part_size, src_begin, src_end, ok);
@@ -456,7 +465,20 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const ConfirmTransferMessa
     return out;
 }
 
-std::vector<uint8_t> MessageSerializerImpl::serialize(const RequestProxyMessage &message) const
+std::vector<uint8_t> MessageSerializerImpl::serialize(const RequestDropPointMessage &message) const
+{
+    std::vector<uint8_t> out(
+        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.part_size));
+
+    auto dest = out.begin();
+    dest      = serialization::serialize_field(message.message_code, dest);
+    dest      = serialization::serialize_field(message.request_id, dest);
+    serialization::serialize_field(message.part_size, dest);
+
+    return out;
+}
+
+std::vector<uint8_t> MessageSerializerImpl::serialize(const RequestLiftProxyMessage &message) const
 {
     std::vector<uint8_t> out(
         sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.part_size));
@@ -708,9 +730,22 @@ void MessageSerializerImpl::deserialize(
             receptor.deserialized(msg);
             break;
         }
-        case MessageCode::REQUESTPROXY:
+        case MessageCode::REQUESTDROPPOINT:
         {
-            RequestProxyMessage msg;
+            RequestDropPointMessage msg;
+            msg.request_id = request_id;
+            deserialize_payload(msg, src_begin, src_end, ok);
+            if (!ok)
+            {
+                receptor.error();
+                return;
+            }
+            receptor.deserialized(msg);
+            break;
+        }
+        case MessageCode::REQUESTLIFTPROXY:
+        {
+            RequestLiftProxyMessage msg;
             msg.request_id = request_id;
             deserialize_payload(msg, src_begin, src_end, ok);
             if (!ok)

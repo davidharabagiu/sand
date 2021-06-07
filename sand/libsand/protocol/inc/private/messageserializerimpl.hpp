@@ -22,7 +22,10 @@ public:
     [[nodiscard]] std::vector<uint8_t> serialize(const UncacheMessage &message) const override;
     [[nodiscard]] std::vector<uint8_t> serialize(
         const ConfirmTransferMessage &message) const override;
-    [[nodiscard]] std::vector<uint8_t> serialize(const RequestProxyMessage &message) const override;
+    [[nodiscard]] std::vector<uint8_t> serialize(
+        const RequestDropPointMessage &message) const override;
+    [[nodiscard]] std::vector<uint8_t> serialize(
+        const RequestLiftProxyMessage &message) const override;
     [[nodiscard]] std::vector<uint8_t> serialize(const InitUploadMessage &message) const override;
     [[nodiscard]] std::vector<uint8_t> serialize(const UploadMessage &message) const override;
     [[nodiscard]] std::vector<uint8_t> serialize(const FetchMessage &message) const override;

@@ -23,7 +23,10 @@ public:
     MOCK_METHOD(std::vector<uint8_t>, serialize, (const UncacheMessage &), (const, override));
     MOCK_METHOD(
         std::vector<uint8_t>, serialize, (const ConfirmTransferMessage &), (const, override));
-    MOCK_METHOD(std::vector<uint8_t>, serialize, (const RequestProxyMessage &), (const, override));
+    MOCK_METHOD(
+        std::vector<uint8_t>, serialize, (const RequestDropPointMessage &), (const, override));
+    MOCK_METHOD(
+        std::vector<uint8_t>, serialize, (const RequestLiftProxyMessage &), (const, override));
     MOCK_METHOD(std::vector<uint8_t>, serialize, (const InitUploadMessage &), (const, override));
     MOCK_METHOD(std::vector<uint8_t>, serialize, (const UploadMessage &), (const, override));
     MOCK_METHOD(std::vector<uint8_t>, serialize, (const FetchMessage &), (const, override));
