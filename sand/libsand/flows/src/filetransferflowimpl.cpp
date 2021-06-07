@@ -390,6 +390,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                         listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                             transfer_handle, transfer_error.str());
                         LOG(ERROR) << transfer_error.str();
+                        return;
                     }
 
                     auto msg        = std::make_unique<protocol::UploadMessage>();
@@ -413,6 +414,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                         listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                             transfer_handle, transfer_error.str());
                         LOG(ERROR) << transfer_error.str();
+                        return;
                     }
 
                     auto reply =
@@ -472,6 +474,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
             if (completion_token.is_cancelled() ||
                 check_if_outbound_transfer_cancelled_and_cleanup(offer_id) || !success)
             {
+                file_storage_->close_file(file_hash);
                 return;
             }
         }
@@ -479,6 +482,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
         std::lock_guard lock {mutex_};
         outbound_transfers_.erase(offer_id);
         listener_group_.notify(&FileTransferFlowListener::on_transfer_completed, transfer_handle);
+        file_storage_->close_file(file_hash);
     });
 
     return true;

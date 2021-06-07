@@ -14,6 +14,7 @@ public:
 
     virtual bool read_file(
         const std::string &file_hash, size_t offset, size_t amount, uint8_t *out) = 0;
+    virtual bool close_file(const std::string &file_hash)                         = 0;
 };
 }  // namespace sand::storage
 
