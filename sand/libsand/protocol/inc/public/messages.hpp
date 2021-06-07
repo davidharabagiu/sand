@@ -28,22 +28,23 @@ using FileSize      = uint64_t;
 
 enum class MessageCode : uint8_t
 {
-    PULL            = 32,
-    PUSH            = 33,
-    BYE             = 34,
-    DEAD            = 35,
-    PING            = 36,
-    DNLSYNC         = 37,
-    SEARCH          = 64,
-    OFFER           = 65,
-    UNCACHE         = 66,
-    CONFIRMTRANSFER = 67,
-    REQUESTPROXY    = 96,
-    INITUPLOAD      = 98,
-    UPLOAD          = 99,
-    FETCH           = 100,
-    INITDOWNLOAD    = 101,
-    REPLY           = 255
+    PULL             = 32,
+    PUSH             = 33,
+    BYE              = 34,
+    DEAD             = 35,
+    PING             = 36,
+    DNLSYNC          = 37,
+    SEARCH           = 64,
+    OFFER            = 65,
+    UNCACHE          = 66,
+    CONFIRMTRANSFER  = 67,
+    REQUESTDROPPOINT = 96,
+    REQUESTLIFTPROXY = 97,
+    INITUPLOAD       = 98,
+    UPLOAD           = 99,
+    FETCH            = 100,
+    INITDOWNLOAD     = 101,
+    REPLY            = 255
 };
 
 enum class StatusCode : uint8_t
@@ -255,12 +256,28 @@ struct ConfirmTransferMessage : public Message
     }
 };
 
-struct RequestProxyMessage : public Message
+struct RequestDropPointMessage : public Message
 {
     PartSize part_size {};
 
-    RequestProxyMessage()
-        : Message {MessageCode::REQUESTPROXY}
+    RequestDropPointMessage()
+        : Message {MessageCode::REQUESTDROPPOINT}
+    {
+    }
+
+    [[nodiscard]] std::vector<Byte> serialize(
+        const std::shared_ptr<const MessageSerializer> &serializer) const override
+    {
+        return serializer->serialize(*this);
+    }
+};
+
+struct RequestLiftProxyMessage : public Message
+{
+    PartSize part_size {};
+
+    RequestDropPointMessage()
+        : Message {MessageCode::REQUESTDROPPOINT}
     {
     }
 

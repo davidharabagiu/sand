@@ -76,6 +76,8 @@ private:
     void                   stop_impl();
     utils::CompletionToken add_job(
         const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
+    bool check_if_outbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
+    bool check_if_inbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
 
 private:
     const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
@@ -92,6 +94,8 @@ private:
     utils::ListenerGroup<FileTransferFlowListener>          listener_group_;
     std::set<utils::CompletionToken>                        running_jobs_;
     std::set<protocol::OfferId>                             outbound_transfers_;
+    std::set<protocol::OfferId>                             inbound_transfers_;
+    std::set<protocol::OfferId>                             pending_transfer_cancellations_;
     State                                                   state_;
     mutable std::mutex                                      mutex_;
 };

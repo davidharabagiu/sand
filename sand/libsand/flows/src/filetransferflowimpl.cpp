@@ -179,7 +179,7 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
                     return;
                 }
 
-                if (peers.size() < number_of_parts)
+                if (peers.size() + drop_points.size() < number_of_parts)
                 {
                     LOG(WARNING) << "Cannot establish drop points for transfer";
                     promise->set_value(TransferHandle {});
@@ -252,6 +252,14 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
         return false;
     }
 
+    const std::string &file_hash    = transfer_handle.data()->search_handle.file_hash;
+    auto [bin_file_hash, decode_ok] = file_hash_interpreter_->decode(file_hash);
+    if (!decode_ok)
+    {
+        LOG(WARNING) << "File hash decoding error: " << file_hash;
+        return false;
+    }
+
     {
         std::lock_guard lock {mutex_};
         if (outbound_transfers_.insert(transfer_handle.data()->offer_id).second == false)
@@ -262,19 +270,16 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
         }
     }
 
-    const std::string &file_hash    = transfer_handle.data()->search_handle.file_hash;
-    auto [bin_file_hash, decode_ok] = file_hash_interpreter_->decode(file_hash);
-    if (!decode_ok)
-    {
-        LOG(WARNING) << "File hash decoding error: " << file_hash;
-        return false;
-    }
-
     size_t file_size = file_hash_interpreter_->get_file_size(bin_file_hash);
 
     add_job(io_executer_, [this, file_hash, file_size, transfer_handle](
                               const auto &completion_token) {
         protocol::OfferId offer_id = transfer_handle.data()->offer_id;
+
+        if (check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
+        {
+            return;
+        }
 
         // Send InitUpload messages
         for (const auto &part_data : transfer_handle.data()->parts)
@@ -284,7 +289,8 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
             msg->offer_id   = offer_id;
             auto reply =
                 protocol_message_handler_->send(part_data.drop_point, std::move(msg)).get();
-            if (completion_token.is_cancelled())
+            if (completion_token.is_cancelled() ||
+                check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
             {
                 return;
             }
@@ -316,6 +322,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
             {
                 std::lock_guard lock {mutex_};
                 outbound_transfers_.erase(offer_id);
+                pending_transfer_cancellations_.erase(offer_id);
                 listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                     transfer_handle, transfer_error.str());
                 return;
@@ -327,30 +334,43 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
         part_upload_promises.reserve(transfer_handle.data()->parts.size());
         size_t total_bytes_transferred = 0;
 
+        size_t               key_size = transfer_handle.data()->transfer_key.size() / 2;
+        std::vector<uint8_t> key(key_size);
+        std::vector<uint8_t> iv(key_size);
+        {
+            auto src = transfer_handle.data()->transfer_key.cbegin();
+            std::copy_n(src, key_size, key.begin());
+            std::advance(src, key_size);
+            std::copy_n(src, key_size, iv.begin());
+        }
+
         for (const auto &part_data : transfer_handle.data()->parts)
         {
             auto &promise = part_upload_promises.emplace_back();
 
             add_job(io_executer_, [this, &promise, &file_hash, offer_id, &transfer_handle,
-                                      &part_data, &total_bytes_transferred,
-                                      &file_size](const auto &completion_token) {
+                                      &part_data, &total_bytes_transferred, &file_size, &key,
+                                      &iv](const auto &completion_token) {
+                if (check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
+                {
+                    return;
+                }
+
                 bool success = false;
                 DEFER(promise.set_value(success));
 
-                size_t bytes_transferred = 0;
+                size_t               bytes_transferred = 0;
+                std::vector<uint8_t> plain_text(max_chunk_size_);
+
                 while (bytes_transferred != part_data.part_size)
                 {
                     size_t chunk_size =
                         std::min(max_chunk_size_, part_data.part_size - bytes_transferred);
 
-                    auto msg        = std::make_unique<protocol::UploadMessage>();
-                    msg->request_id = rng_.next<protocol::RequestId>();
-                    msg->offset     = protocol::PartSize(bytes_transferred);
-                    msg->data.resize(chunk_size);
-
                     bool read_ok = file_storage_->read_file(file_hash,
-                        part_data.part_offset + bytes_transferred, chunk_size, msg->data.data());
-                    if (completion_token.is_cancelled())
+                        part_data.part_offset + bytes_transferred, chunk_size, plain_text.data());
+                    if (completion_token.is_cancelled() ||
+                        check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
                     {
                         return;
                     }
@@ -360,7 +380,31 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                     {
                         std::lock_guard lock {mutex_};
                         outbound_transfers_.erase(offer_id);
+                        pending_transfer_cancellations_.erase(offer_id);
                         transfer_error << "Cannot read file " << file_hash;
+                        listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
+                            transfer_handle, transfer_error.str());
+                        LOG(ERROR) << transfer_error.str();
+                    }
+
+                    auto msg        = std::make_unique<protocol::UploadMessage>();
+                    msg->request_id = rng_.next<protocol::RequestId>();
+                    msg->offset     = protocol::PartSize(bytes_transferred);
+                    msg->data =
+                        aes_->encrypt(crypto::AESCipher::CBC, key, iv, plain_text, *executer_)
+                            .get();
+                    if (completion_token.is_cancelled() ||
+                        check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
+                    {
+                        return;
+                    }
+
+                    if (msg->data.empty())
+                    {
+                        std::lock_guard lock {mutex_};
+                        outbound_transfers_.erase(offer_id);
+                        pending_transfer_cancellations_.erase(offer_id);
+                        transfer_error << "Data encryption error";
                         listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                             transfer_handle, transfer_error.str());
                         LOG(ERROR) << transfer_error.str();
@@ -368,7 +412,8 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 
                     auto reply =
                         protocol_message_handler_->send(part_data.drop_point, std::move(msg)).get();
-                    if (completion_token.is_cancelled())
+                    if (completion_token.is_cancelled() ||
+                        check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
                     {
                         return;
                     }
@@ -398,6 +443,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                     {
                         std::lock_guard lock {mutex_};
                         outbound_transfers_.erase(offer_id);
+                        pending_transfer_cancellations_.erase(offer_id);
                         listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                             transfer_handle, transfer_error.str());
                         return;
@@ -418,7 +464,8 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
         for (auto &promise : part_upload_promises)
         {
             bool success = promise.get_future().get();
-            if (completion_token.is_cancelled() || !success)
+            if (completion_token.is_cancelled() ||
+                check_if_outbound_transfer_cancelled_and_cleanup(offer_id) || !success)
             {
                 return;
             }
@@ -432,14 +479,178 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
     return true;
 }
 
-bool FileTransferFlowImpl::receive_file(const TransferHandle & /*transfer_handle*/)
+bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
 {
-    return false;
+    {
+        std::lock_guard lock {mutex_};
+        if (state_ != State::RUNNING)
+        {
+            LOG(WARNING) << "FileTransferFlow not started";
+            return false;
+        }
+    }
+
+    if (!transfer_handle.is_valid())
+    {
+        return false;
+    }
+
+    const std::string &file_hash    = transfer_handle.data()->search_handle.file_hash;
+    auto [bin_file_hash, decode_ok] = file_hash_interpreter_->decode(file_hash);
+    if (!decode_ok)
+    {
+        LOG(WARNING) << "File hash decoding error: " << file_hash;
+        return false;
+    }
+
+    {
+        std::lock_guard lock {mutex_};
+        if (inbound_transfers_.insert(transfer_handle.data()->offer_id).second == false)
+        {
+            LOG(WARNING) << "Transfer for offer_id " << transfer_handle.data()->offer_id
+                         << " already in progress";
+            return false;
+        }
+    }
+
+    add_job(io_executer_, [this, transfer_handle](const auto &completion_token) {
+        protocol::OfferId offer_id = transfer_handle.data()->offer_id;
+        if (check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
+        {
+            return;
+        }
+
+        const auto &                   parts = transfer_handle.data()->parts;
+        std::set<network::IPv4Address> lift_proxies;
+
+        // Send RequestProxy messages
+        auto next_part_it = parts.cbegin();
+        while (lift_proxies.size() != parts.size())
+        {
+            auto peers = peer_address_provider_
+                             ->get_peers(int(parts.size() - lift_proxies.size()), lift_proxies)
+                             .get();
+            if (completion_token.is_cancelled() ||
+                check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
+            {
+                return;
+            }
+
+            if (peers.size() < parts.size())
+            {
+                std::string err_string = "Cannot establish lift proxies for transfer";
+                LOG(WARNING) << err_string;
+                std::lock_guard lock {mutex_};
+                inbound_transfers_.erase(offer_id);
+                pending_transfer_cancellations_.erase(offer_id);
+                listener_group_.notify(
+                    &FileTransferFlowListener::on_transfer_error, transfer_handle, err_string);
+                return;
+            }
+
+            for (auto a : peers)
+            {
+                if (lift_proxies.count(a) != 0)
+                {
+                    continue;
+                }
+
+                auto request_proxy_msg        = std::make_unique<protocol::RequestProxyMessage>();
+                request_proxy_msg->request_id = rng_.next<protocol::RequestId>();
+                request_proxy_msg->part_size  = next_part_it->part_size;
+
+                auto request_proxy_reply =
+                    protocol_message_handler_->send(a, std::move(request_proxy_msg)).get();
+                if (completion_token.is_cancelled() ||
+                    check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
+                {
+                    return;
+                }
+
+                if (request_proxy_reply->status_code == protocol::StatusCode::OK)
+                {
+                    lift_proxies.insert(a);
+
+                    if (lift_proxies.size() > parts.size())
+                    {
+                        break;
+                    }
+
+                    ++next_part_it;
+                }
+            }
+        }
+
+        // Send Fetch messages
+        auto               lift_proxies_it = lift_proxies.cbegin();
+        auto               parts_it        = parts.cbegin();
+        std::ostringstream transfer_error;
+        for (; lift_proxies_it != lift_proxies.cend(); ++lift_proxies_it, ++parts_it)
+        {
+            auto msg        = std::make_unique<protocol::FetchMessage>();
+            msg->request_id = rng_.next<protocol::RequestId>();
+            msg->offer_id   = offer_id;
+            msg->drop_point = parts_it->drop_point;
+
+            auto reply = protocol_message_handler_->send(*lift_proxies_it, std::move(msg)).get();
+            if (completion_token.is_cancelled() ||
+                check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
+            {
+                return;
+            }
+
+            if (reply->status_code == protocol::StatusCode::UNREACHABLE)
+            {
+                transfer_error << "Lift proxy " << network::conversion::to_string(*lift_proxies_it)
+                               << " disconnected";
+                LOG(WARNING) << transfer_error.str();
+            }
+            else if (reply->status_code == protocol::StatusCode::DENY)
+            {
+                transfer_error << "Lift proxy " << network::conversion::to_string(*lift_proxies_it)
+                               << " refused transfer";
+                LOG(WARNING) << transfer_error.str();
+            }
+            else
+            {
+                transfer_error << "Unknown error while trying to reach lift proxy "
+                               << network::conversion::to_string(*lift_proxies_it);
+                LOG(WARNING) << transfer_error.str();
+            }
+
+            if (reply->status_code != protocol::StatusCode::OK)
+            {
+                std::lock_guard lock {mutex_};
+                inbound_transfers_.erase(offer_id);
+                pending_transfer_cancellations_.erase(offer_id);
+                listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
+                    transfer_handle, transfer_error.str());
+                return;
+            }
+        }
+    });
+
+    return true;
 }
 
-bool FileTransferFlowImpl::cancel_transfer(const TransferHandle & /*transfer_handle*/)
+bool FileTransferFlowImpl::cancel_transfer(const TransferHandle &transfer_handle)
 {
-    return false;
+    protocol::OfferId offer_id = transfer_handle.data()->offer_id;
+
+    std::lock_guard lock {mutex_};
+    if (inbound_transfers_.count(offer_id) == 0 && outbound_transfers_.count(offer_id) == 0)
+    {
+        LOG(ERROR) << "Unknown transfer with offer id " << offer_id;
+        return false;
+    }
+    if (pending_transfer_cancellations_.count(offer_id) != 0)
+    {
+        LOG(ERROR) << "Transfer with offer id " << offer_id << " already in progress";
+        return false;
+    }
+
+    pending_transfer_cancellations_.insert(offer_id);
+    return true;
 }
 
 void FileTransferFlowImpl::handle_request_proxy(
@@ -525,5 +736,31 @@ utils::CompletionToken FileTransferFlowImpl::add_job(
                         running_jobs_.erase(completion_token);
                     }))
                 .first;
+}
+
+bool FileTransferFlowImpl::check_if_outbound_transfer_cancelled_and_cleanup(
+    protocol::OfferId offer_id)
+{
+    std::lock_guard lock {mutex_};
+    if (pending_transfer_cancellations_.count(offer_id) != 0)
+    {
+        pending_transfer_cancellations_.erase(offer_id);
+        outbound_transfers_.erase(offer_id);
+        return true;
+    }
+    return false;
+}
+
+bool FileTransferFlowImpl::check_if_inbound_transfer_cancelled_and_cleanup(
+    protocol::OfferId offer_id)
+{
+    std::lock_guard lock {mutex_};
+    if (pending_transfer_cancellations_.count(offer_id) != 0)
+    {
+        pending_transfer_cancellations_.erase(offer_id);
+        inbound_transfers_.erase(offer_id);
+        return true;
+    }
+    return false;
 }
 }  // namespace sand::flows
