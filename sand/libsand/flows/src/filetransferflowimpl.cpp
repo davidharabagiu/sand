@@ -19,6 +19,8 @@ namespace sand::flows
 {
 namespace
 {
+constexpr protocol::PartSize ENCRYPTION_BLOCK_SIZE = 16;
+
 const char *to_string(FileTransferFlow::State state)
 {
     switch (state)
@@ -167,76 +169,83 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
     size_t file_size       = file_hash_interpreter_->get_file_size(file_hash);
     size_t number_of_parts = file_size / max_part_size_ + (file_size % max_part_size_ != 0);
 
-    add_job(io_executer_,
-        [this, search_handle, promise, file_size, number_of_parts](const auto &completion_token) {
-            std::set<network::IPv4Address>                            drop_points;
-            std::vector<protocol::OfferMessage::SecretData::PartData> parts;
-            parts.reserve(number_of_parts);
-            size_t current_offset = 0;
+    add_job(io_executer_, [this, search_handle, promise, file_size, number_of_parts](
+                              const auto &completion_token) {
+        std::set<network::IPv4Address>                            drop_points;
+        std::vector<protocol::OfferMessage::SecretData::PartData> parts;
+        parts.reserve(number_of_parts);
+        size_t current_offset = 0;
 
-            while (drop_points.size() != number_of_parts)
+        while (drop_points.size() != number_of_parts)
+        {
+            auto peers = peer_address_provider_
+                             ->get_peers(int(number_of_parts - drop_points.size()), drop_points)
+                             .get();
+            if (completion_token.is_cancelled())
             {
-                auto peers = peer_address_provider_
-                                 ->get_peers(int(number_of_parts - drop_points.size()), drop_points)
-                                 .get();
+                return;
+            }
+
+            if (peers.size() + drop_points.size() < number_of_parts)
+            {
+                LOG(WARNING) << "Cannot establish drop points for transfer";
+                promise->set_value(TransferHandle {});
+                return;
+            }
+
+            for (auto a : peers)
+            {
+                if (drop_points.count(a) != 0)
+                {
+                    continue;
+                }
+
+                auto part_size = static_cast<protocol::PartSize>(
+                    drop_points.size() == number_of_parts - 1 ? file_size % max_part_size_ :
+                                                                max_part_size_);
+
+                protocol::PartSize padded_part_size = part_size;
+                if (padded_part_size % ENCRYPTION_BLOCK_SIZE != 0)
+                {
+                    padded_part_size =
+                        (padded_part_size / ENCRYPTION_BLOCK_SIZE + 1) * ENCRYPTION_BLOCK_SIZE;
+                }
+
+                auto request_drop_point_msg = std::make_unique<protocol::RequestDropPointMessage>();
+                request_drop_point_msg->request_id = rng_.next<protocol::RequestId>();
+                request_drop_point_msg->part_size  = padded_part_size;
+
+                auto request_drop_point_reply =
+                    protocol_message_handler_->send(a, std::move(request_drop_point_msg)).get();
                 if (completion_token.is_cancelled())
                 {
                     return;
                 }
 
-                if (peers.size() + drop_points.size() < number_of_parts)
+                if (request_drop_point_reply->status_code == protocol::StatusCode::OK)
                 {
-                    LOG(WARNING) << "Cannot establish drop points for transfer";
-                    promise->set_value(TransferHandle {});
-                    return;
-                }
+                    drop_points.insert(a);
+                    parts.push_back({a, current_offset, part_size});
 
-                for (auto a : peers)
-                {
-                    if (drop_points.count(a) != 0)
+                    if (drop_points.size() > number_of_parts)
                     {
-                        continue;
+                        break;
                     }
 
-                    auto part_size = static_cast<protocol::PartSize>(
-                        drop_points.size() == number_of_parts - 1 ? file_size % max_part_size_ :
-                                                                    max_part_size_);
-
-                    auto request_proxy_msg = std::make_unique<protocol::RequestDropPointMessage>();
-                    request_proxy_msg->request_id = rng_.next<protocol::RequestId>();
-                    request_proxy_msg->part_size  = part_size;
-
-                    auto request_proxy_reply =
-                        protocol_message_handler_->send(a, std::move(request_proxy_msg)).get();
-                    if (completion_token.is_cancelled())
-                    {
-                        return;
-                    }
-
-                    if (request_proxy_reply->status_code == protocol::StatusCode::OK)
-                    {
-                        drop_points.insert(a);
-                        parts.push_back({a, current_offset, part_size});
-
-                        if (drop_points.size() > number_of_parts)
-                        {
-                            break;
-                        }
-
-                        current_offset += part_size;
-                    }
+                    current_offset += part_size;
                 }
             }
+        }
 
-            std::vector<uint8_t> key, iv;
-            aes_->generate_key_and_iv(crypto::AESCipher::AES128, crypto::AESCipher::CBC, key, iv);
-            protocol::TransferKey transfer_key;
-            std::copy(
-                iv.cbegin(), iv.cend(), std::copy(key.cbegin(), key.cend(), transfer_key.begin()));
+        std::vector<uint8_t> key, iv;
+        aes_->generate_key_and_iv(crypto::AESCipher::AES128, crypto::AESCipher::CBC, key, iv);
+        protocol::TransferKey transfer_key;
+        std::copy(
+            iv.cbegin(), iv.cend(), std::copy(key.cbegin(), key.cend(), transfer_key.begin()));
 
-            promise->set_value(TransferHandle {std::make_shared<TransferHandleImpl>(
-                *search_handle.data(), rng_.next<protocol::OfferId>(), transfer_key, parts)});
-        });
+        promise->set_value(TransferHandle {std::make_shared<TransferHandleImpl>(
+            *search_handle.data(), rng_.next<protocol::OfferId>(), transfer_key, parts)});
+    });
 
     return future;
 }
@@ -564,19 +573,26 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
                     continue;
                 }
 
-                auto request_proxy_msg = std::make_unique<protocol::RequestLiftProxyMessage>();
-                request_proxy_msg->request_id = rng_.next<protocol::RequestId>();
-                request_proxy_msg->part_size  = next_part_it->part_size;
+                protocol::PartSize padded_part_size = next_part_it->part_size;
+                if (padded_part_size % ENCRYPTION_BLOCK_SIZE != 0)
+                {
+                    padded_part_size =
+                        (padded_part_size / ENCRYPTION_BLOCK_SIZE + 1) * ENCRYPTION_BLOCK_SIZE;
+                }
 
-                auto request_proxy_reply =
-                    protocol_message_handler_->send(a, std::move(request_proxy_msg)).get();
+                auto request_lift_proxy_msg = std::make_unique<protocol::RequestLiftProxyMessage>();
+                request_lift_proxy_msg->request_id = rng_.next<protocol::RequestId>();
+                request_lift_proxy_msg->part_size  = padded_part_size;
+
+                auto request_lift_proxy_reply =
+                    protocol_message_handler_->send(a, std::move(request_lift_proxy_msg)).get();
                 if (completion_token.is_cancelled() ||
                     check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
                 {
                     return;
                 }
 
-                if (request_proxy_reply->status_code == protocol::StatusCode::OK)
+                if (request_lift_proxy_reply->status_code == protocol::StatusCode::OK)
                 {
                     lift_proxies.insert(a);
 
