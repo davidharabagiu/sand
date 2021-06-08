@@ -260,12 +260,13 @@ TEST_F(MessageSerializerTest, SerializeRequest_Upload)
 {
     UploadMessage req;
     req.request_id = 12;
+    req.offer_id   = 0x198971b3068d7e4d;
     req.offset     = 0x90020526;
     req.data.resize(0x400000);
     testutils::random_values(req.data.begin(), req.data.size());
 
-    std::vector<uint8_t> expected {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x05,
-        0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
+    std::vector<uint8_t> expected {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
+        0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x26, 0x05, 0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
     std::copy(req.data.cbegin(), req.data.cend(), std::back_inserter(expected));
 
     MessageSerializerImpl serializer;
@@ -660,6 +661,17 @@ TEST_F(MessageSerializerTest, DeserializeRequest_RequestDropPoint)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
+TEST_F(MessageSerializerTest, DeserializeRequest_RequestDropPoint_Invalid)
+{
+    std::vector<uint8_t> bytes {
+        0x60, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5d, 0x35, 0xbb};
+
+    MessageSerializerImpl serializer;
+    EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
+
+    serializer.deserialize(bytes, *result_receptor_mock_);
+}
+
 TEST_F(MessageSerializerTest, DeserializeRequest_RequestLiftProxy)
 {
     PartSize             part_size = 0xabb355d;
@@ -677,10 +689,10 @@ TEST_F(MessageSerializerTest, DeserializeRequest_RequestLiftProxy)
     serializer.deserialize(bytes, *result_receptor_mock_);
 }
 
-TEST_F(MessageSerializerTest, DeserializeRequest_RequestProxy_Invalid)
+TEST_F(MessageSerializerTest, DeserializeRequest_RequestLiftProxy_Invalid)
 {
     std::vector<uint8_t> bytes {
-        0x60, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5d, 0x35, 0xbb};
+        0x61, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5d, 0x35, 0xbb};
 
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_, error()).Times(1);
@@ -718,20 +730,21 @@ TEST_F(MessageSerializerTest, DeserializeRequest_InitUpload_Invalid)
 
 TEST_F(MessageSerializerTest, DeserializeRequest_Upload)
 {
-    PartSize             offset = 0x90020526;
+    OfferId              offer_id = 0x198971b3068d7e4d;
+    PartSize             offset   = 0x90020526;
     std::vector<uint8_t> data(0x400000);
     testutils::random_values(data.begin(), data.size());
 
-    std::vector<uint8_t> bytes {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x05,
-        0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
+    std::vector<uint8_t> bytes {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
+        0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x26, 0x05, 0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
     std::copy(data.cbegin(), data.cend(), std::back_inserter(bytes));
 
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
         deserialized(Matcher<const UploadMessage &>(
             AllOf(Field(&UploadMessage::message_code, MessageCode::UPLOAD),
-                Field(&UploadMessage::request_id, 12), Field(&UploadMessage::offset, offset),
-                Field(&UploadMessage::data, data)))))
+                Field(&UploadMessage::request_id, 12), Field(&UploadMessage::offer_id, offer_id),
+                Field(&UploadMessage::offset, offset), Field(&UploadMessage::data, data)))))
         .Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
@@ -742,8 +755,8 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Upload_Invalid)
     std::vector<uint8_t> data(0x400000);
     testutils::random_values(data.begin(), data.size());
 
-    std::vector<uint8_t> bytes {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x05,
-        0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
+    std::vector<uint8_t> bytes {0x63, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x7e,
+        0x8d, 0x06, 0xb3, 0x71, 0x89, 0x19, 0x26, 0x05, 0x02, 0x90, 0x00, 0x00, 0x40, 0x00};
     std::copy(data.cbegin(), data.cend(), std::back_inserter(bytes));
     bytes.resize(bytes.size() - 1);
 

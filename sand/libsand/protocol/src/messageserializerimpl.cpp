@@ -214,6 +214,12 @@ InputIt deserialize_payload(UploadMessage &message, InputIt src_begin, InputIt s
 {
     ok = true;
 
+    src_begin = serialization::deserialize_field(message.offer_id, src_begin, src_end, ok);
+    if (!ok)
+    {
+        return src_begin;
+    }
+
     src_begin = serialization::deserialize_field(message.offset, src_begin, src_end, ok);
     if (!ok)
     {
@@ -515,12 +521,13 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const UploadMessage &messa
     }
 
     std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
-                             sizeof(message.offset) + sizeof(PartSize) +
+                             sizeof(message.offer_id) + sizeof(message.offset) + sizeof(PartSize) +
                              message.data.size() * sizeof(message.data[0]));
 
     auto dest = out.begin();
     dest      = serialization::serialize_field(message.message_code, dest);
     dest      = serialization::serialize_field(message.request_id, dest);
+    dest      = serialization::serialize_field(message.offer_id, dest);
     dest      = serialization::serialize_field(message.offset, dest);
     dest      = serialization::serialize_field(PartSize(message.data.size()), dest);
     std::copy(message.data.cbegin(), message.data.cend(), dest);

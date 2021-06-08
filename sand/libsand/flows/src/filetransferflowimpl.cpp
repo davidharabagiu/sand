@@ -404,6 +404,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 
                     auto msg        = std::make_unique<protocol::UploadMessage>();
                     msg->request_id = rng_.next<protocol::RequestId>();
+                    msg->offer_id   = offer_id;
                     msg->offset     = protocol::PartSize(bytes_transferred);
                     msg->data =
                         aes_->encrypt(crypto::AESCipher::CBC, key, iv, plain_text, *executer_)

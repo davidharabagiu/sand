@@ -306,6 +306,7 @@ struct InitUploadMessage : public Message
 
 struct UploadMessage : public Message
 {
+    OfferId           offer_id;
     PartSize          offset {};
     std::vector<Byte> data;
 
