@@ -55,7 +55,8 @@ enum class StatusCode : uint8_t
     DUPLICATION            = 3,
     FOREIGN_DNL_ADDRESS    = 4,
     CANNOT_FORWARD         = 5,
-    DENY                   = 6
+    DENY                   = 6,
+    INTERNAL_ERROR         = 7
 };
 
 struct Message

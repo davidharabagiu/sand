@@ -1,6 +1,7 @@
 #ifndef SAND_FLOWS_FILETRANSFERFLOWIMPL_HPP_
 #define SAND_FLOWS_FILETRANSFERFLOWIMPL_HPP_
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -14,6 +15,7 @@
 #include "messages.hpp"
 #include "peermanagerflowlistener.hpp"
 #include "random.hpp"
+#include "temporarydatastorage.hpp"
 
 namespace sand::crypto
 {
@@ -45,12 +47,14 @@ class FileTransferFlowImpl
 {
 public:
     FileTransferFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
-        std::shared_ptr<InboundRequestDispatcher>     inbound_request_dispatcher,
-        std::shared_ptr<PeerAddressProvider>          peer_address_provider,
-        std::shared_ptr<storage::FileStorage>         file_storage,
-        std::shared_ptr<storage::FileHashInterpreter> file_hash_interpreter,
+        std::shared_ptr<InboundRequestDispatcher>      inbound_request_dispatcher,
+        std::shared_ptr<PeerAddressProvider>           peer_address_provider,
+        std::shared_ptr<storage::FileStorage>          file_storage,
+        std::shared_ptr<storage::FileHashInterpreter>  file_hash_interpreter,
+        std::shared_ptr<storage::TemporaryDataStorage> temporary_storage,
         std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
-        std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size);
+        std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size,
+        size_t max_temp_storage_size);
 
     ~FileTransferFlowImpl() override;
 
@@ -81,26 +85,42 @@ private:
         const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
     bool check_if_outbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
     bool check_if_inbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
+    void handle_upload_as_drop_point(network::IPv4Address from, const protocol::UploadMessage &msg);
 
 private:
-    const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
-    const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;
-    const std::shared_ptr<PeerAddressProvider>              peer_address_provider_;
-    const std::shared_ptr<storage::FileStorage>             file_storage_;
-    const std::shared_ptr<storage::FileHashInterpreter>     file_hash_interpreter_;
-    const std::shared_ptr<crypto::AESCipher>                aes_;
-    const std::shared_ptr<utils::Executer>                  executer_;
-    const std::shared_ptr<utils::Executer>                  io_executer_;
-    const size_t                                            max_part_size_;
-    const size_t                                            max_chunk_size_;
-    utils::Random                                           rng_;
-    utils::ListenerGroup<FileTransferFlowListener>          listener_group_;
-    std::set<utils::CompletionToken>                        running_jobs_;
-    std::set<protocol::OfferId>                             outbound_transfers_;
-    std::set<protocol::OfferId>                             inbound_transfers_;
-    std::set<protocol::OfferId>                             pending_transfer_cancellations_;
-    State                                                   state_;
-    mutable std::mutex                                      mutex_;
+    struct OngoingDropPointTransferData
+    {
+        network::IPv4Address                  uploader;
+        protocol::PartSize                    part_size;
+        storage::TemporaryDataStorage::Handle storage_handle;
+        bool                                  lift_proxy_connected;
+        network::IPv4Address                  lift_proxy;
+        protocol::PartSize                    bytes_transferred;
+    };
+
+    const std::shared_ptr<protocol::ProtocolMessageHandler>   protocol_message_handler_;
+    const std::shared_ptr<InboundRequestDispatcher>           inbound_request_dispatcher_;
+    const std::shared_ptr<PeerAddressProvider>                peer_address_provider_;
+    const std::shared_ptr<storage::FileStorage>               file_storage_;
+    const std::shared_ptr<storage::FileHashInterpreter>       file_hash_interpreter_;
+    const std::shared_ptr<storage::TemporaryDataStorage>      temporary_storage_;
+    const std::shared_ptr<crypto::AESCipher>                  aes_;
+    const std::shared_ptr<utils::Executer>                    executer_;
+    const std::shared_ptr<utils::Executer>                    io_executer_;
+    const size_t                                              max_part_size_;
+    const size_t                                              max_chunk_size_;
+    const size_t                                              max_temp_storage_size_;
+    utils::Random                                             rng_;
+    utils::ListenerGroup<FileTransferFlowListener>            listener_group_;
+    std::set<utils::CompletionToken>                          running_jobs_;
+    std::set<protocol::OfferId>                               outbound_transfers_;
+    std::set<protocol::OfferId>                               inbound_transfers_;
+    std::set<protocol::OfferId>                               pending_transfer_cancellations_;
+    size_t                                                    commited_temp_storage_;
+    std::map<network::IPv4Address, protocol::PartSize>        commited_drop_point_roles_;
+    std::map<protocol::OfferId, OngoingDropPointTransferData> ongoing_drop_point_transfers_;
+    State                                                     state_;
+    mutable std::mutex                                        mutex_;
 };
 }  // namespace sand::flows
 

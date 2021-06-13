@@ -1,6 +1,7 @@
 #include "filetransferflowimpl.hpp"
 
 #include <algorithm>
+#include <queue>
 #include <sstream>
 
 #include <glog/logging.h>
@@ -45,18 +46,23 @@ FileTransferFlowImpl::FileTransferFlowImpl(
     std::shared_ptr<PeerAddressProvider>              peer_address_provider,
     std::shared_ptr<storage::FileStorage>             file_storage,
     std::shared_ptr<storage::FileHashInterpreter>     file_hash_interpreter,
+    std::shared_ptr<storage::TemporaryDataStorage>    temporary_storage,
     std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
-    std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size)
+    std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size,
+    size_t max_temp_storage_size)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
     , peer_address_provider_ {std::move(peer_address_provider)}
     , file_storage_ {std::move(file_storage)}
     , file_hash_interpreter_ {std::move(file_hash_interpreter)}
+    , temporary_storage_ {std::move(temporary_storage)}
     , aes_ {std::move(aes)}
     , executer_ {std::move(executer)}
     , io_executer_ {std::move(io_executer)}
     , max_part_size_ {max_part_size}
     , max_chunk_size_ {max_chunk_size}
+    , max_temp_storage_size_ {max_temp_storage_size}
+    , commited_temp_storage_ {0}
     , state_ {State::IDLE}
 {
     inbound_request_dispatcher_->set_callback<protocol::RequestDropPointMessage>([this](auto &&p1,
@@ -680,8 +686,49 @@ bool FileTransferFlowImpl::cancel_transfer(const TransferHandle &transfer_handle
 }
 
 void FileTransferFlowImpl::handle_request_drop_point(
-    network::IPv4Address /*from*/, const protocol::RequestDropPointMessage & /*msg*/)
+    network::IPv4Address from, const protocol::RequestDropPointMessage &msg)
 {
+    {
+        std::lock_guard lock {mutex_};
+
+        if (state_ != State::RUNNING)
+        {
+            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+            return;
+        }
+    }
+
+    add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
+        {
+            std::unique_lock lock {mutex_};
+            if (commited_temp_storage_ + msg.part_size > max_temp_storage_size_)
+            {
+                lock.unlock();
+                LOG(INFO) << "Maximum commited temporary storage reached. Denying request.";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
+            if (commited_drop_point_roles_.emplace(from, msg.part_size).second == false)
+            {
+                lock.unlock();
+                LOG(INFO) << "Drop point role already commited for uploader "
+                          << network::conversion::to_string(from) << ". Denying request.";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
+            commited_temp_storage_ += msg.part_size;
+        }
+
+        reply->status_code = protocol::StatusCode::OK;
+        protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+    });
 }
 
 void FileTransferFlowImpl::handle_request_lift_proxy(
@@ -690,13 +737,176 @@ void FileTransferFlowImpl::handle_request_lift_proxy(
 }
 
 void FileTransferFlowImpl::handle_init_upload(
-    network::IPv4Address /*from*/, const protocol::InitUploadMessage & /*msg*/)
+    network::IPv4Address from, const protocol::InitUploadMessage &msg)
 {
+    {
+        std::lock_guard lock {mutex_};
+
+        if (state_ != State::RUNNING)
+        {
+            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+            return;
+        }
+    }
+
+    add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
+        {
+            std::unique_lock lock {mutex_};
+            auto             it = commited_drop_point_roles_.find(from);
+            if (it == commited_drop_point_roles_.end() ||
+                ongoing_drop_point_transfers_.count(msg.offer_id) != 0)
+            {
+                lock.unlock();
+                LOG(WARNING) << "Stray InitUpload message, denying request.";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
+            auto part_size      = it->second;
+            auto storage_handle = temporary_storage_->create(part_size);
+            if (storage_handle == storage::TemporaryDataStorage::invalid_handle)
+            {
+                lock.unlock();
+                LOG(WARNING) << "Cannot reserve temporary storage space of " << part_size
+                             << " bytes.";
+                reply->status_code = protocol::StatusCode::INTERNAL_ERROR;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
+            ongoing_drop_point_transfers_.emplace(msg.offer_id,
+                OngoingDropPointTransferData {from, part_size, storage_handle, false, 0, 0});
+        }
+
+        reply->status_code = protocol::StatusCode::OK;
+        protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+    });
 }
 
 void FileTransferFlowImpl::handle_upload(
-    network::IPv4Address /*from*/, const protocol::UploadMessage & /*msg*/)
+    network::IPv4Address from, const protocol::UploadMessage &msg)
 {
+    {
+        std::lock_guard lock {mutex_};
+
+        if (state_ != State::RUNNING)
+        {
+            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+            return;
+        }
+    }
+
+    add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
+        std::unique_lock lock {mutex_};
+
+        auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
+        if (it != ongoing_drop_point_transfers_.end())
+        {
+            if (it->second.uploader != from)
+            {
+                lock.unlock();
+                LOG(WARNING) << "Unexpected upload message source";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
+            // This node is a drop point for this transfer
+            lock.unlock();
+            handle_upload_as_drop_point(from, msg);
+        }
+        else
+        {
+            lock.unlock();
+            LOG(WARNING) << "Unexpected upload message";
+            reply->status_code = protocol::StatusCode::DENY;
+            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+        }
+    });
+}
+
+void FileTransferFlowImpl::handle_upload_as_drop_point(
+    network::IPv4Address from, const protocol::UploadMessage &msg)
+{
+    // Send reply
+    auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+    reply->request_id  = msg.request_id;
+    reply->status_code = protocol::StatusCode::OK;
+    protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+
+    std::unique_lock lock {mutex_};
+
+    auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
+    if (it == ongoing_drop_point_transfers_.end())
+    {
+        LOG(FATAL) << "Assertion failed: invalid call tohandle_upload_as_drop_point";
+        return;
+    }
+
+    bool cleanup = false;
+
+    if (it->second.lift_proxy_connected)
+    {
+        // Lift proxy connected, just forward message to it
+        network::IPv4Address lift_proxy_address = it->second.lift_proxy;
+        it->second.bytes_transferred += protocol::PartSize(msg.data.size());
+        protocol::PartSize bytes_transferred = it->second.bytes_transferred;
+        protocol::PartSize bytes_to_transfer = it->second.part_size;
+        lock.unlock();
+
+        auto forwarded_msg        = std::make_unique<protocol::UploadMessage>(msg);
+        forwarded_msg->request_id = rng_.next<protocol::RequestId>();
+        auto forwarded_msg_reply =
+            protocol_message_handler_->send(lift_proxy_address, std::move(forwarded_msg)).get();
+        if (forwarded_msg_reply->status_code != protocol::StatusCode::OK)
+        {
+            LOG(WARNING) << "Cannot forward Upload message to "
+                         << network::conversion::to_string(lift_proxy_address)
+                         << ". Got status code "
+                         << static_cast<int>(forwarded_msg_reply->status_code) << ".";
+            cleanup = true;
+        }
+        else if (bytes_transferred >= bytes_to_transfer)
+        {
+            // Transfer is done
+            cleanup = true;
+        }
+    }
+    else
+    {
+        // Unknown lift proxy address, store data chunk in temporary storage
+        if (!temporary_storage_->write(
+                it->second.storage_handle, msg.offset, msg.data.size(), msg.data.data()))
+        {
+            lock.unlock();
+            LOG(ERROR) << "Cannot write to temporary storage";
+            cleanup = true;
+        }
+    }
+
+    if (cleanup)
+    {
+        lock.lock();
+        it = ongoing_drop_point_transfers_.find(msg.offer_id);
+        if (it == ongoing_drop_point_transfers_.end())
+        {
+            return;
+        }
+        if (!it->second.lift_proxy_connected)
+        {
+            commited_temp_storage_ -= it->second.part_size;
+            temporary_storage_->remove(it->second.storage_handle);
+        }
+        commited_drop_point_roles_.erase(it->second.uploader);
+        ongoing_drop_point_transfers_.erase(it);
+    }
 }
 
 void FileTransferFlowImpl::handle_fetch(
@@ -705,8 +915,102 @@ void FileTransferFlowImpl::handle_fetch(
 }
 
 void FileTransferFlowImpl::handle_init_download(
-    network::IPv4Address /*from*/, const protocol::InitDownloadMessage & /*msg*/)
+    network::IPv4Address from, const protocol::InitDownloadMessage &msg)
 {
+    {
+        std::lock_guard lock {mutex_};
+
+        if (state_ != State::RUNNING)
+        {
+            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+            return;
+        }
+    }
+
+    add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
+        std::unique_lock lock {mutex_};
+
+        auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
+        if (it == ongoing_drop_point_transfers_.end() || it->second.lift_proxy_connected)
+        {
+            lock.unlock();
+            LOG(WARNING) << "Unexpected InitDownload message";
+            reply->status_code = protocol::StatusCode::DENY;
+            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+            return;
+        }
+
+        // Send reply
+        reply->status_code = protocol::StatusCode::OK;
+        protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+
+        auto cleanup_fun = [&, this] {
+            it = ongoing_drop_point_transfers_.find(msg.offer_id);
+            if (it == ongoing_drop_point_transfers_.end())
+            {
+                return;
+            }
+            if (!it->second.lift_proxy_connected)
+            {
+                commited_temp_storage_ -= it->second.part_size;
+                temporary_storage_->remove(it->second.storage_handle);
+            }
+            commited_drop_point_roles_.erase(it->second.uploader);
+            ongoing_drop_point_transfers_.erase(it);
+        };
+
+        // Remember lift proxy address
+        it->second.lift_proxy_connected = true;
+        it->second.lift_proxy           = from;
+
+        // Send all temporary stored data
+        auto read_handle = temporary_storage_->start_reading(it->second.storage_handle);
+        if (!read_handle)
+        {
+            LOG(ERROR) << "Cannot read from temporary storage";
+            cleanup_fun();
+            return;
+        }
+
+        for (;;)
+        {
+            size_t               chunk_offset;
+            size_t               chunk_size;
+            std::vector<uint8_t> chunk_data(max_chunk_size_);
+            if (!temporary_storage_->read_next_chunk(
+                    read_handle, max_chunk_size_, chunk_offset, chunk_size, chunk_data.data()))
+            {
+                break;
+            }
+
+            auto upload_msg        = std::make_unique<protocol::UploadMessage>();
+            upload_msg->request_id = rng_.next<protocol::RequestId>();
+            upload_msg->offer_id   = msg.offer_id;
+            upload_msg->offset     = protocol::PartSize(chunk_offset);
+            upload_msg->data       = std::move(chunk_data);
+            upload_msg->data.resize(chunk_size);
+
+            auto upload_reply = protocol_message_handler_->send(from, std::move(upload_msg)).get();
+            if (upload_reply->status_code != protocol::StatusCode::OK)
+            {
+                LOG(WARNING) << "Cannot send Upload message to "
+                             << network::conversion::to_string(from) << ". Got status code "
+                             << static_cast<int>(upload_reply->status_code) << ".";
+                cleanup_fun();
+                return;
+            }
+
+            it->second.bytes_transferred += protocol::PartSize(chunk_size);
+        }
+
+        if (it->second.bytes_transferred >= it->second.part_size)
+        {
+            cleanup_fun();
+        }
+    });
 }
 
 void FileTransferFlowImpl::set_state(FileTransferFlow::State new_state)
@@ -746,6 +1050,18 @@ void FileTransferFlowImpl::stop_impl()
         LOG(ERROR) << "Some jobs are still running. This should not happen.";
     }
     lock.unlock();
+
+    for (const auto &kv : ongoing_drop_point_transfers_)
+    {
+        temporary_storage_->remove(kv.second.storage_handle);
+    }
+
+    outbound_transfers_.clear();
+    inbound_transfers_.clear();
+    pending_transfer_cancellations_.clear();
+    commited_drop_point_roles_.clear();
+    ongoing_drop_point_transfers_.clear();
+    commited_temp_storage_ = 0;
 
     set_state(State::IDLE);
 }
