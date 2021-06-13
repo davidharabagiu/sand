@@ -1,7 +1,6 @@
 #include "filetransferflowimpl.hpp"
 
 #include <algorithm>
-#include <queue>
 #include <sstream>
 
 #include <glog/logging.h>
@@ -732,7 +731,7 @@ void FileTransferFlowImpl::handle_request_drop_point(
 }
 
 void FileTransferFlowImpl::handle_request_lift_proxy(
-    network::IPv4Address /*from*/, const protocol::RequestLiftProxyMessage & /*msg*/)
+    network::IPv4Address from, const protocol::RequestLiftProxyMessage &msg)
 {
 }
 
@@ -766,20 +765,35 @@ void FileTransferFlowImpl::handle_init_upload(
                 return;
             }
 
-            auto part_size      = it->second;
-            auto storage_handle = temporary_storage_->create(part_size);
-            if (storage_handle == storage::TemporaryDataStorage::invalid_handle)
-            {
-                lock.unlock();
-                LOG(WARNING) << "Cannot reserve temporary storage space of " << part_size
-                             << " bytes.";
-                reply->status_code = protocol::StatusCode::INTERNAL_ERROR;
-                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
-                return;
-            }
+            auto part_size = it->second;
+            auto it2       = pending_lift_proxy_connections_.find(msg.offer_id);
 
-            ongoing_drop_point_transfers_.emplace(msg.offer_id,
-                OngoingDropPointTransferData {from, part_size, storage_handle, false, 0, 0});
+            if (it2 == pending_lift_proxy_connections_.end())
+            {
+                // Lift proxy not yet connected, create temporary storage
+                auto storage_handle = temporary_storage_->create(part_size);
+                if (storage_handle == storage::TemporaryDataStorage::invalid_handle)
+                {
+                    lock.unlock();
+                    LOG(WARNING) << "Cannot reserve temporary storage space of " << part_size
+                                 << " bytes.";
+                    reply->status_code = protocol::StatusCode::INTERNAL_ERROR;
+                    protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                    return;
+                }
+
+                ongoing_drop_point_transfers_.emplace(msg.offer_id,
+                    OngoingDropPointTransferData {from, part_size, storage_handle, false, 0, 0});
+            }
+            else
+            {
+                // Lift proxy already sent InitDownload, no need for temp storage
+                commited_temp_storage_ -= part_size;
+                ongoing_drop_point_transfers_.emplace(msg.offer_id,
+                    OngoingDropPointTransferData {from, part_size,
+                        storage::TemporaryDataStorage::invalid_handle, true, it2->second, 0});
+                pending_lift_proxy_connections_.erase(it2);
+            }
         }
 
         reply->status_code = protocol::StatusCode::OK;
@@ -933,13 +947,39 @@ void FileTransferFlowImpl::handle_init_download(
 
         std::unique_lock lock {mutex_};
 
+        bool failure          = false;
+        bool init_upload_sent = false;
+
         auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
-        if (it == ongoing_drop_point_transfers_.end() || it->second.lift_proxy_connected)
+        if (it == ongoing_drop_point_transfers_.end())
+        {
+            // InitUpload not sent yet
+            if (pending_lift_proxy_connections_.emplace(msg.offer_id, from).second == false)
+            {
+                failure = true;
+            }
+        }
+        else
+        {
+            if (it->second.lift_proxy_connected)
+            {
+                failure = true;
+            }
+            init_upload_sent = true;
+        }
+
+        if (failure)
         {
             lock.unlock();
             LOG(WARNING) << "Unexpected InitDownload message";
             reply->status_code = protocol::StatusCode::DENY;
             protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+            return;
+        }
+
+        if (!init_upload_sent)
+        {
+            // InitUpload not sent
             return;
         }
 
@@ -965,6 +1005,11 @@ void FileTransferFlowImpl::handle_init_download(
         // Remember lift proxy address
         it->second.lift_proxy_connected = true;
         it->second.lift_proxy           = from;
+
+        // Remove temporary storage
+        temporary_storage_->remove(it->second.storage_handle);
+        it->second.storage_handle = storage::TemporaryDataStorage::invalid_handle;
+        commited_temp_storage_ -= it->second.part_size;
 
         // Send all temporary stored data
         auto read_handle = temporary_storage_->start_reading(it->second.storage_handle);
@@ -1060,6 +1105,7 @@ void FileTransferFlowImpl::stop_impl()
     inbound_transfers_.clear();
     pending_transfer_cancellations_.clear();
     commited_drop_point_roles_.clear();
+    pending_lift_proxy_connections_.clear();
     ongoing_drop_point_transfers_.clear();
     commited_temp_storage_ = 0;
 

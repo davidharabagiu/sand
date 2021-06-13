@@ -118,6 +118,7 @@ private:
     std::set<protocol::OfferId>                               pending_transfer_cancellations_;
     size_t                                                    commited_temp_storage_;
     std::map<network::IPv4Address, protocol::PartSize>        commited_drop_point_roles_;
+    std::map<protocol::OfferId, network::IPv4Address>         pending_lift_proxy_connections_;
     std::map<protocol::OfferId, OngoingDropPointTransferData> ongoing_drop_point_transfers_;
     State                                                     state_;
     mutable std::mutex                                        mutex_;
