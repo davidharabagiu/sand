@@ -49,14 +49,15 @@ enum class MessageCode : uint8_t
 
 enum class StatusCode : uint8_t
 {
-    OK                     = 0,
-    UNREACHABLE            = 1,
-    RESOURCE_NOT_AVAILABLE = 2,
-    DUPLICATION            = 3,
-    FOREIGN_DNL_ADDRESS    = 4,
-    CANNOT_FORWARD         = 5,
-    DENY                   = 6,
-    INTERNAL_ERROR         = 7
+    OK                      = 0,
+    UNREACHABLE             = 1,
+    RESOURCE_NOT_AVAILABLE  = 2,
+    DUPLICATION             = 3,
+    FOREIGN_DNL_ADDRESS     = 4,
+    CANNOT_FORWARD          = 5,
+    DENY                    = 6,
+    LIFT_PROXY_DISCONNECTED = 7,
+    INTERNAL_ERROR          = 8
 };
 
 struct Message

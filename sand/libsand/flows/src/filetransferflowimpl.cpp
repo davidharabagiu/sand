@@ -733,6 +733,36 @@ void FileTransferFlowImpl::handle_request_drop_point(
 void FileTransferFlowImpl::handle_request_lift_proxy(
     network::IPv4Address from, const protocol::RequestLiftProxyMessage &msg)
 {
+    {
+        std::lock_guard lock {mutex_};
+
+        if (state_ != State::RUNNING)
+        {
+            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+            return;
+        }
+    }
+
+    add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
+        std::unique_lock lock {mutex_};
+
+        if (!commited_lift_proxy_roles_.emplace(from, msg.part_size).second)
+        {
+            lock.unlock();
+            LOG(WARNING) << "RequestLiftProxy from " << network::conversion::to_string(from)
+                         << " already received";
+            reply->status_code = protocol::StatusCode::DENY;
+            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+            return;
+        }
+
+        lock.unlock();
+        reply->status_code = protocol::StatusCode::OK;
+        protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+    });
 }
 
 void FileTransferFlowImpl::handle_init_upload(
@@ -820,29 +850,50 @@ void FileTransferFlowImpl::handle_upload(
 
         std::unique_lock lock {mutex_};
 
-        auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
-        if (it != ongoing_drop_point_transfers_.end())
         {
-            if (it->second.uploader != from)
+            auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
+            if (it != ongoing_drop_point_transfers_.end())
             {
+                if (it->second.uploader != from)
+                {
+                    lock.unlock();
+                    LOG(WARNING) << "Unexpected upload message source";
+                    reply->status_code = protocol::StatusCode::DENY;
+                    protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                    return;
+                }
+
+                // This node is a drop point for this transfer
                 lock.unlock();
-                LOG(WARNING) << "Unexpected upload message source";
-                reply->status_code = protocol::StatusCode::DENY;
-                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                handle_upload_as_drop_point(from, msg);
                 return;
             }
+        }
 
-            // This node is a drop point for this transfer
-            lock.unlock();
-            handle_upload_as_drop_point(from, msg);
-        }
-        else
         {
-            lock.unlock();
-            LOG(WARNING) << "Unexpected upload message";
-            reply->status_code = protocol::StatusCode::DENY;
-            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+            auto it = ongoing_lift_proxy_transfers_.find(msg.offer_id);
+            if (it != ongoing_lift_proxy_transfers_.end())
+            {
+                if (it->second.drop_point != from)
+                {
+                    lock.unlock();
+                    LOG(WARNING) << "Unexpected upload message source";
+                    reply->status_code = protocol::StatusCode::DENY;
+                    protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                    return;
+                }
+
+                // This node is a drop point for this transfer
+                lock.unlock();
+                handle_upload_as_lift_proxy(from, msg);
+                return;
+            }
         }
+
+        lock.unlock();
+        LOG(WARNING) << "Unexpected upload message";
+        reply->status_code = protocol::StatusCode::DENY;
+        protocol_message_handler_->send_reply(from, std::move(reply)).wait();
     });
 }
 
@@ -860,7 +911,7 @@ void FileTransferFlowImpl::handle_upload_as_drop_point(
     auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
     if (it == ongoing_drop_point_transfers_.end())
     {
-        LOG(FATAL) << "Assertion failed: invalid call tohandle_upload_as_drop_point";
+        LOG(FATAL) << "Assertion failed: invalid call to handle_upload_as_drop_point";
         return;
     }
 
@@ -923,9 +974,119 @@ void FileTransferFlowImpl::handle_upload_as_drop_point(
     }
 }
 
-void FileTransferFlowImpl::handle_fetch(
-    network::IPv4Address /*from*/, const protocol::FetchMessage & /*msg*/)
+void FileTransferFlowImpl::handle_upload_as_lift_proxy(
+    network::IPv4Address from, const protocol::UploadMessage &msg)
 {
+    // Send reply
+    auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+    reply->request_id  = msg.request_id;
+    reply->status_code = protocol::StatusCode::OK;
+    protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+
+    std::unique_lock lock {mutex_};
+
+    auto it = ongoing_lift_proxy_transfers_.find(msg.offer_id);
+    if (it == ongoing_lift_proxy_transfers_.end())
+    {
+        LOG(FATAL) << "Assertion failed: invalid call to handle_upload_as_lift_proxy";
+        return;
+    }
+
+    bool cleanup = false;
+
+    network::IPv4Address downloader_address = it->second.downloader;
+    it->second.bytes_transferred += protocol::PartSize(msg.data.size());
+    protocol::PartSize bytes_transferred = it->second.bytes_transferred;
+    protocol::PartSize bytes_to_transfer = it->second.part_size;
+    lock.unlock();
+
+    auto forwarded_msg        = std::make_unique<protocol::UploadMessage>(msg);
+    forwarded_msg->request_id = rng_.next<protocol::RequestId>();
+    auto forwarded_msg_reply =
+        protocol_message_handler_->send(downloader_address, std::move(forwarded_msg)).get();
+    if (forwarded_msg_reply->status_code != protocol::StatusCode::OK)
+    {
+        LOG(WARNING) << "Cannot forward Upload message to "
+                     << network::conversion::to_string(downloader_address) << ". Got status code "
+                     << static_cast<int>(forwarded_msg_reply->status_code) << ".";
+        cleanup = true;
+    }
+    else if (bytes_transferred >= bytes_to_transfer)
+    {
+        // Transfer is done
+        cleanup = true;
+    }
+
+    if (cleanup)
+    {
+        lock.lock();
+        it = ongoing_lift_proxy_transfers_.find(msg.offer_id);
+        if (it == ongoing_lift_proxy_transfers_.end())
+        {
+            return;
+        }
+        commited_drop_point_roles_.erase(it->second.drop_point);
+        ongoing_lift_proxy_transfers_.erase(it);
+    }
+}
+
+void FileTransferFlowImpl::handle_fetch(
+    network::IPv4Address from, const protocol::FetchMessage &msg)
+{
+    {
+        std::lock_guard lock {mutex_};
+
+        if (state_ != State::RUNNING)
+        {
+            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+            return;
+        }
+    }
+
+    add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
+        std::unique_lock lock {mutex_};
+        auto             it = commited_lift_proxy_roles_.find(from);
+        if (it == commited_lift_proxy_roles_.end())
+        {
+            lock.unlock();
+            LOG(WARNING) << "Unexpected Fetch message received";
+            reply->status_code = protocol::StatusCode::DENY;
+            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+            return;
+        }
+        protocol::PartSize part_size = it->second;
+
+        lock.unlock();
+
+        auto init_download_msg        = std::make_unique<protocol::InitDownloadMessage>();
+        init_download_msg->request_id = rng_.next<protocol::RequestId>();
+        init_download_msg->offer_id   = msg.offer_id;
+        auto init_download_reply =
+            protocol_message_handler_->send(msg.drop_point, std::move(init_download_msg)).get();
+        if (init_download_reply->status_code != protocol::StatusCode::OK)
+        {
+            lock.lock();
+            commited_lift_proxy_roles_.erase(from);
+            lock.unlock();
+            LOG(WARNING) << "Cannot send InitDownload message to "
+                         << network::conversion::to_string(msg.drop_point) << ". Got status code "
+                         << static_cast<int>(init_download_reply->status_code) << ".";
+            reply->status_code = protocol::StatusCode::LIFT_PROXY_DISCONNECTED;
+            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+            return;
+        }
+
+        lock.lock();
+        ongoing_lift_proxy_transfers_.emplace(
+            msg.offer_id, OngoinLiftProxyTransferData {from, msg.drop_point, part_size, 0});
+        lock.unlock();
+
+        reply->status_code = protocol::StatusCode::OK;
+        protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+    });
 }
 
 void FileTransferFlowImpl::handle_init_download(
@@ -1107,6 +1268,8 @@ void FileTransferFlowImpl::stop_impl()
     commited_drop_point_roles_.clear();
     pending_lift_proxy_connections_.clear();
     ongoing_drop_point_transfers_.clear();
+    commited_lift_proxy_roles_.clear();
+    ongoing_lift_proxy_transfers_.clear();
     commited_temp_storage_ = 0;
 
     set_state(State::IDLE);

@@ -86,6 +86,7 @@ private:
     bool check_if_outbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
     bool check_if_inbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
     void handle_upload_as_drop_point(network::IPv4Address from, const protocol::UploadMessage &msg);
+    void handle_upload_as_lift_proxy(network::IPv4Address from, const protocol::UploadMessage &msg);
 
 private:
     struct OngoingDropPointTransferData
@@ -96,6 +97,14 @@ private:
         bool                                  lift_proxy_connected;
         network::IPv4Address                  lift_proxy;
         protocol::PartSize                    bytes_transferred;
+    };
+
+    struct OngoinLiftProxyTransferData
+    {
+        network::IPv4Address downloader;
+        network::IPv4Address drop_point;
+        protocol::PartSize   part_size;
+        protocol::PartSize   bytes_transferred;
     };
 
     const std::shared_ptr<protocol::ProtocolMessageHandler>   protocol_message_handler_;
@@ -120,6 +129,8 @@ private:
     std::map<network::IPv4Address, protocol::PartSize>        commited_drop_point_roles_;
     std::map<protocol::OfferId, network::IPv4Address>         pending_lift_proxy_connections_;
     std::map<protocol::OfferId, OngoingDropPointTransferData> ongoing_drop_point_transfers_;
+    std::map<network::IPv4Address, protocol::PartSize>        commited_lift_proxy_roles_;
+    std::map<protocol::OfferId, OngoinLiftProxyTransferData>  ongoing_lift_proxy_transfers_;
     State                                                     state_;
     mutable std::mutex                                        mutex_;
 };
