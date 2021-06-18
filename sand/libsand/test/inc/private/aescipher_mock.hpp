@@ -8,7 +8,7 @@
 using namespace ::sand::crypto;
 using namespace ::sand::utils;
 
-class AESCipherMock : AESCipher
+class AESCipherMock : public AESCipher
 {
 public:
     MOCK_METHOD(bool, generate_key_and_iv, (KeySize, ModeOfOperation, ByteVector &, ByteVector &),
