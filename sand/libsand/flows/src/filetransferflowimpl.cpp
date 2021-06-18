@@ -46,7 +46,7 @@ FileTransferFlowImpl::FileTransferFlowImpl(
     std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher,
     std::shared_ptr<PeerAddressProvider>              peer_address_provider,
     std::shared_ptr<storage::FileStorage>             file_storage,
-    std::shared_ptr<storage::FileHashInterpreter>     file_hash_interpreter,
+    std::unique_ptr<storage::FileHashInterpreter>     file_hash_interpreter,
     std::shared_ptr<storage::TemporaryDataStorage>    temporary_storage,
     std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
     std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size,
