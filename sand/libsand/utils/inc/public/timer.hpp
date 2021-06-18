@@ -24,12 +24,16 @@ public:
     explicit Timer(std::shared_ptr<Executer> executer);
     ~Timer();
     bool start(Period period, Callback &&callback, bool single_shot = false);
+    bool restart();
     bool stop();
 
 private:
     const std::shared_ptr<Executer> executer_;
     TimePoint                       next_trigger_moment_;
     std::optional<CompletionToken>  completion_token_;
+    Period                          period_;
+    Callback                        callback_;
+    bool                            single_shot_;
 };
 }  // namespace sand::utils
 

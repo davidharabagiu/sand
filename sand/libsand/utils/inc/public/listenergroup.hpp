@@ -3,6 +3,7 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
 #include <utility>
 
 namespace sand::utils
@@ -17,35 +18,50 @@ public:
 
     bool add(const SharedPtrListener &listener)
     {
+        std::lock_guard lock {mutex_};
         return listeners_.try_emplace(listener.get(), listener).second;
     }
 
     bool remove(const SharedPtrListener &listener)
     {
+        std::lock_guard lock {mutex_};
         return listeners_.erase(listener.get());
     }
 
     template<typename M, typename... Args>
     void notify(M method, Args &&... args)
     {
-        for (auto it = listeners_.begin(); it != listeners_.end();)
+        std::vector<SharedPtrListener> listeners_copy;
+
         {
-            auto listener = it->second.lock();
-            if (listener)
+            std::lock_guard lock {mutex_};
+
+            listeners_copy.reserve(listeners_.size());
+            for (auto it = listeners_.begin(); it != listeners_.end();)
             {
-                ((*listener).*method)(std::forward<Args>(args)...);
-                ++it;
+                auto listener = it->second.lock();
+                if (listener)
+                {
+                    listeners_copy.push_back(listener);
+                    ++it;
+                }
+                else
+                {
+                    it = listeners_.erase(it);
+                }
             }
-            else
-            {
-                it = listeners_.erase(it);
-            }
+        }
+
+        for (auto &listener : listeners_copy)
+        {
+            ((*listener).*method)(std::forward<Args>(args)...);
         }
     }
 
 private:
     using Key = void *;
     std::map<Key, WeakPtrListener> listeners_;
+    std::mutex                     mutex_;
 };
 }  // namespace sand::utils
 

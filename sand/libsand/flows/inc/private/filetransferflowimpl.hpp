@@ -1,10 +1,12 @@
 #ifndef SAND_FLOWS_FILETRANSFERFLOWIMPL_HPP_
 #define SAND_FLOWS_FILETRANSFERFLOWIMPL_HPP_
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <set>
+#include <string>
 
 #include "address.hpp"
 #include "completiontoken.hpp"
@@ -16,6 +18,7 @@
 #include "peermanagerflowlistener.hpp"
 #include "random.hpp"
 #include "temporarydatastorage.hpp"
+#include "timer.hpp"
 
 namespace sand::crypto
 {
@@ -54,7 +57,9 @@ public:
         std::shared_ptr<storage::TemporaryDataStorage> temporary_storage,
         std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
         std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size,
-        size_t max_temp_storage_size);
+        size_t max_temp_storage_size, int receive_file_timeout, int drop_point_request_timeout,
+        int lift_proxy_request_timeout, int drop_point_transfer_timeout,
+        int lift_proxy_transfer_timeout);
 
     ~FileTransferFlowImpl() override;
 
@@ -85,10 +90,43 @@ private:
         const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
     bool check_if_outbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
     bool check_if_inbound_transfer_cancelled_and_cleanup(protocol::OfferId offer_id);
+    void outbound_transfer_cleanup(protocol::OfferId offer_id);
+    void inbound_transfer_cleanup(protocol::OfferId offer_id);
+    void drop_point_transfer_cleanup(protocol::OfferId offer_id);
+    void lift_proxy_tranfer_cleanup(protocol::OfferId offer_id);
     void handle_upload_as_drop_point(network::IPv4Address from, const protocol::UploadMessage &msg);
     void handle_upload_as_lift_proxy(network::IPv4Address from, const protocol::UploadMessage &msg);
+    void handle_upload_as_endpoint(network::IPv4Address from, const protocol::UploadMessage &msg);
+
+    template<typename Rep, typename Period>
+    std::shared_ptr<utils::Timer> add_timeout(std::chrono::duration<Rep, Period> duration,
+        std::function<void()> &&func, bool acquire_mutex = true)
+    {
+        std::unique_lock lock {mutex_, std::defer_lock};
+        if (acquire_mutex)
+        {
+            lock.lock();
+        }
+        decltype(timeouts_)::iterator it;
+        std::tie(it, std::ignore) = timeouts_.emplace(std::make_shared<utils::Timer>(io_executer_));
+        (*it)->start(std::chrono::duration_cast<utils::Timer::Period>(duration),
+            [this, timer = std::weak_ptr<utils::Timer>(*it), func = std::move(func)] {
+                add_job(executer_, [this, timer, func](const auto & /*completion_token*/) {
+                    func();
+                    std::lock_guard lock {mutex_};
+                    timeouts_.erase(timer.lock());
+                });
+            });
+        return *it;
+    }
 
 private:
+    struct CommitedProxyRoleData
+    {
+        protocol::PartSize            part_size;
+        std::shared_ptr<utils::Timer> timeout;
+    };
+
     struct OngoingDropPointTransferData
     {
         network::IPv4Address                  uploader;
@@ -97,14 +135,28 @@ private:
         bool                                  lift_proxy_connected;
         network::IPv4Address                  lift_proxy;
         protocol::PartSize                    bytes_transferred;
+        std::shared_ptr<utils::Timer>         timeout;
     };
 
-    struct OngoinLiftProxyTransferData
+    struct OngoingLiftProxyTransferData
     {
-        network::IPv4Address downloader;
-        network::IPv4Address drop_point;
-        protocol::PartSize   part_size;
-        protocol::PartSize   bytes_transferred;
+        network::IPv4Address          downloader;
+        network::IPv4Address          drop_point;
+        protocol::PartSize            part_size;
+        protocol::PartSize            bytes_transferred;
+        std::shared_ptr<utils::Timer> timeout;
+    };
+
+    struct InboundTransfer
+    {
+        using PartData = protocol::OfferMessage::SecretData::PartData;
+
+        std::map<network::IPv4Address, PartData> parts_by_source;
+        protocol::FileSize                       file_size;
+        protocol::FileSize                       bytes_transferred;
+        TransferHandle                           transfer_handle {};
+        std::string                              file_hash;
+        std::shared_ptr<utils::Timer>            timeout;
     };
 
     const std::shared_ptr<protocol::ProtocolMessageHandler>   protocol_message_handler_;
@@ -119,18 +171,24 @@ private:
     const size_t                                              max_part_size_;
     const size_t                                              max_chunk_size_;
     const size_t                                              max_temp_storage_size_;
+    const int                                                 receive_file_timeout_;
+    const int                                                 drop_point_request_timeout_;
+    const int                                                 lift_proxy_request_timeout_;
+    const int                                                 drop_point_transfer_timeout_;
+    const int                                                 lift_proxy_transfer_timeout_;
     utils::Random                                             rng_;
     utils::ListenerGroup<FileTransferFlowListener>            listener_group_;
     std::set<utils::CompletionToken>                          running_jobs_;
     std::set<protocol::OfferId>                               outbound_transfers_;
-    std::set<protocol::OfferId>                               inbound_transfers_;
+    std::map<protocol::OfferId, InboundTransfer>              inbound_transfers_;
     std::set<protocol::OfferId>                               pending_transfer_cancellations_;
     size_t                                                    commited_temp_storage_;
-    std::map<network::IPv4Address, protocol::PartSize>        commited_drop_point_roles_;
+    std::map<network::IPv4Address, CommitedProxyRoleData>     commited_drop_point_roles_;
     std::map<protocol::OfferId, network::IPv4Address>         pending_lift_proxy_connections_;
     std::map<protocol::OfferId, OngoingDropPointTransferData> ongoing_drop_point_transfers_;
-    std::map<network::IPv4Address, protocol::PartSize>        commited_lift_proxy_roles_;
-    std::map<protocol::OfferId, OngoinLiftProxyTransferData>  ongoing_lift_proxy_transfers_;
+    std::map<network::IPv4Address, CommitedProxyRoleData>     commited_lift_proxy_roles_;
+    std::map<protocol::OfferId, OngoingLiftProxyTransferData> ongoing_lift_proxy_transfers_;
+    std::set<std::shared_ptr<utils::Timer>>                   timeouts_;
     State                                                     state_;
     mutable std::mutex                                        mutex_;
 };

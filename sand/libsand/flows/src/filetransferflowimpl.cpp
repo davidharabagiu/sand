@@ -1,7 +1,9 @@
 #include "filetransferflowimpl.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <sstream>
+#include <type_traits>
 
 #include <glog/logging.h>
 
@@ -48,7 +50,9 @@ FileTransferFlowImpl::FileTransferFlowImpl(
     std::shared_ptr<storage::TemporaryDataStorage>    temporary_storage,
     std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
     std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size,
-    size_t max_temp_storage_size)
+    size_t max_temp_storage_size, int receive_file_timeout, int drop_point_request_timeout,
+    int lift_proxy_request_timeout, int drop_point_transfer_timeout,
+    int lift_proxy_transfer_timeout)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
     , peer_address_provider_ {std::move(peer_address_provider)}
@@ -61,6 +65,11 @@ FileTransferFlowImpl::FileTransferFlowImpl(
     , max_part_size_ {max_part_size}
     , max_chunk_size_ {max_chunk_size}
     , max_temp_storage_size_ {max_temp_storage_size}
+    , receive_file_timeout_ {receive_file_timeout}
+    , drop_point_request_timeout_ {drop_point_request_timeout}
+    , lift_proxy_request_timeout_ {lift_proxy_request_timeout}
+    , drop_point_transfer_timeout_ {drop_point_transfer_timeout}
+    , lift_proxy_transfer_timeout_ {lift_proxy_transfer_timeout}
     , commited_temp_storage_ {0}
     , state_ {State::IDLE}
 {
@@ -98,10 +107,8 @@ FileTransferFlowImpl::~FileTransferFlowImpl()
     inbound_request_dispatcher_->unset_callback<protocol::FetchMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::InitDownloadMessage>();
 
-    std::unique_lock lock {mutex_};
-    if (state_ == State::RUNNING)
+    if (state() == State::RUNNING)
     {
-        lock.unlock();
         stop_impl();
     }
 }
@@ -146,14 +153,11 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
     auto promise = std::make_shared<std::promise<TransferHandle>>();
     auto future  = promise->get_future();
 
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started";
-            promise->set_value(TransferHandle {});
-            return future;
-        }
+        LOG(WARNING) << "FileTransferFlow not started";
+        promise->set_value(TransferHandle {});
+        return future;
     }
 
     if (!file_storage_->contains(search_handle.data()->file_hash))
@@ -193,7 +197,8 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
 
             if (peers.size() + drop_points.size() < number_of_parts)
             {
-                LOG(WARNING) << "Cannot establish drop points for transfer";
+                LOG(WARNING) << "Cannot establish drop points for transfer for search "
+                             << search_handle.data()->search_id;
                 promise->set_value(TransferHandle {});
                 return;
             }
@@ -257,13 +262,10 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
 
 bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started";
-            return false;
-        }
+        LOG(WARNING) << "FileTransferFlow not started";
+        return false;
     }
 
     if (!transfer_handle.is_valid())
@@ -339,9 +341,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 
             if (reply->status_code != protocol::StatusCode::OK)
             {
-                std::lock_guard lock {mutex_};
-                outbound_transfers_.erase(offer_id);
-                pending_transfer_cancellations_.erase(offer_id);
+                outbound_transfer_cleanup(offer_id);
                 listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                     transfer_handle, transfer_error.str());
                 return;
@@ -351,7 +351,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
         // Send file parts
         std::vector<std::promise<bool>> part_upload_promises;
         part_upload_promises.reserve(transfer_handle.data()->parts.size());
-        size_t total_bytes_transferred = 0;
+        std::atomic<size_t> total_bytes_transferred = 0;
 
         size_t               key_size = transfer_handle.data()->transfer_key.size() / 2;
         std::vector<uint8_t> key(key_size);
@@ -397,9 +397,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                     std::ostringstream transfer_error;
                     if (!read_ok)
                     {
-                        std::lock_guard lock {mutex_};
-                        outbound_transfers_.erase(offer_id);
-                        pending_transfer_cancellations_.erase(offer_id);
+                        outbound_transfer_cleanup(offer_id);
                         transfer_error << "Cannot read file " << file_hash;
                         listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                             transfer_handle, transfer_error.str());
@@ -422,9 +420,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 
                     if (msg->data.empty())
                     {
-                        std::lock_guard lock {mutex_};
-                        outbound_transfers_.erase(offer_id);
-                        pending_transfer_cancellations_.erase(offer_id);
+                        outbound_transfer_cleanup(offer_id);
                         transfer_error << "Data encryption error";
                         listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                             transfer_handle, transfer_error.str());
@@ -463,9 +459,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 
                     if (reply->status_code != protocol::StatusCode::OK)
                     {
-                        std::lock_guard lock {mutex_};
-                        outbound_transfers_.erase(offer_id);
-                        pending_transfer_cancellations_.erase(offer_id);
+                        outbound_transfer_cleanup(offer_id);
                         listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                             transfer_handle, transfer_error.str());
                         return;
@@ -473,7 +467,6 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 
                     bytes_transferred += chunk_size;
 
-                    std::lock_guard lock {mutex_};
                     total_bytes_transferred += chunk_size;
                     listener_group_.notify(&FileTransferFlowListener::on_transfer_progress_changed,
                         transfer_handle, total_bytes_transferred, file_size);
@@ -494,8 +487,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
             }
         }
 
-        std::lock_guard lock {mutex_};
-        outbound_transfers_.erase(offer_id);
+        outbound_transfer_cleanup(offer_id);
         listener_group_.notify(&FileTransferFlowListener::on_transfer_completed, transfer_handle);
         file_storage_->close_file(file_hash);
     });
@@ -505,13 +497,10 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
 
 bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started";
-            return false;
-        }
+        LOG(WARNING) << "FileTransferFlow not started";
+        return false;
     }
 
     if (!transfer_handle.is_valid())
@@ -527,9 +516,12 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
         return false;
     }
 
+    size_t file_size = file_hash_interpreter_->get_file_size(bin_file_hash);
+
     {
         std::lock_guard lock {mutex_};
-        if (inbound_transfers_.insert(transfer_handle.data()->offer_id).second == false)
+        if (inbound_transfers_.emplace(transfer_handle.data()->offer_id, InboundTransfer {})
+                .second == false)
         {
             LOG(WARNING) << "Transfer for offer_id " << transfer_handle.data()->offer_id
                          << " already in progress";
@@ -537,7 +529,7 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
         }
     }
 
-    add_job(io_executer_, [this, transfer_handle](const auto &completion_token) {
+    add_job(io_executer_, [this, transfer_handle, file_size](const auto &completion_token) {
         protocol::OfferId offer_id = transfer_handle.data()->offer_id;
         if (check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
         {
@@ -546,6 +538,7 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
 
         const auto &                   parts = transfer_handle.data()->parts;
         std::set<network::IPv4Address> lift_proxies;
+        std::map<network::IPv4Address, std::decay_t<decltype(parts)>::value_type> parts_by_source;
 
         // Send RequestProxy messages
         auto next_part_it = parts.cbegin();
@@ -564,9 +557,7 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
             {
                 std::string err_string = "Cannot establish lift proxies for transfer";
                 LOG(WARNING) << err_string;
-                std::lock_guard lock {mutex_};
-                inbound_transfers_.erase(offer_id);
-                pending_transfer_cancellations_.erase(offer_id);
+                inbound_transfer_cleanup(offer_id);
                 listener_group_.notify(
                     &FileTransferFlowListener::on_transfer_error, transfer_handle, err_string);
                 return;
@@ -601,6 +592,7 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
                 if (request_lift_proxy_reply->status_code == protocol::StatusCode::OK)
                 {
                     lift_proxies.insert(a);
+                    parts_by_source.emplace(a, *next_part_it);
 
                     if (lift_proxies.size() > parts.size())
                     {
@@ -610,6 +602,15 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
                     ++next_part_it;
                 }
             }
+        }
+
+        {
+            std::lock_guard  lock {mutex_};
+            InboundTransfer &tx_data  = inbound_transfers_.at(offer_id);
+            tx_data.file_size         = file_size;
+            tx_data.bytes_transferred = 0;
+            tx_data.transfer_handle   = transfer_handle;
+            tx_data.parts_by_source   = std::move(parts_by_source);
         }
 
         // Send Fetch messages
@@ -651,12 +652,26 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
 
             if (reply->status_code != protocol::StatusCode::OK)
             {
-                std::lock_guard lock {mutex_};
-                inbound_transfers_.erase(offer_id);
-                pending_transfer_cancellations_.erase(offer_id);
+                inbound_transfer_cleanup(offer_id);
                 listener_group_.notify(&FileTransferFlowListener::on_transfer_error,
                     transfer_handle, transfer_error.str());
                 return;
+            }
+        }
+
+        // Set timeout
+        if (receive_file_timeout_ > 0)
+        {
+            auto timeout =
+                add_timeout(std::chrono::seconds(receive_file_timeout_), [this, offer_id] {
+                    LOG(INFO) << "Receive file timeout reached, cancelling transfer...";
+                    inbound_transfer_cleanup(offer_id);
+                });
+            std::lock_guard lock {mutex_};
+            auto            it = inbound_transfers_.find(offer_id);
+            if (it != inbound_transfers_.end())
+            {
+                it->second.timeout = timeout;
             }
         }
     });
@@ -687,14 +702,10 @@ bool FileTransferFlowImpl::cancel_transfer(const TransferHandle &transfer_handle
 void FileTransferFlowImpl::handle_request_drop_point(
     network::IPv4Address from, const protocol::RequestDropPointMessage &msg)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
-            return;
-        }
+        LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+        return;
     }
 
     add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
@@ -712,7 +723,29 @@ void FileTransferFlowImpl::handle_request_drop_point(
                 return;
             }
 
-            if (commited_drop_point_roles_.emplace(from, msg.part_size).second == false)
+            std::shared_ptr<utils::Timer> timeout;
+            if (drop_point_request_timeout_ > 0)
+            {
+                timeout = add_timeout(
+                    std::chrono::seconds(drop_point_request_timeout_),
+                    [this, from] {
+                        std::lock_guard lock {mutex_};
+
+                        auto it = commited_drop_point_roles_.find(from);
+                        if (it == commited_drop_point_roles_.end())
+                        {
+                            return;
+                        }
+
+                        commited_temp_storage_ -= it->second.part_size;
+                        commited_drop_point_roles_.erase(it);
+                    },
+                    false);
+            }
+
+            if (commited_drop_point_roles_
+                    .emplace(from, CommitedProxyRoleData {msg.part_size, timeout})
+                    .second == false)
             {
                 lock.unlock();
                 LOG(INFO) << "Drop point role already commited for uploader "
@@ -733,33 +766,44 @@ void FileTransferFlowImpl::handle_request_drop_point(
 void FileTransferFlowImpl::handle_request_lift_proxy(
     network::IPv4Address from, const protocol::RequestLiftProxyMessage &msg)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
-            return;
-        }
+        LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+        return;
     }
 
     add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
         auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
         reply->request_id = msg.request_id;
 
-        std::unique_lock lock {mutex_};
-
-        if (!commited_lift_proxy_roles_.emplace(from, msg.part_size).second)
         {
-            lock.unlock();
-            LOG(WARNING) << "RequestLiftProxy from " << network::conversion::to_string(from)
-                         << " already received";
-            reply->status_code = protocol::StatusCode::DENY;
-            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
-            return;
+            std::unique_lock lock {mutex_};
+
+            std::shared_ptr<utils::Timer> timeout;
+            if (lift_proxy_request_timeout_ > 0)
+            {
+                timeout = add_timeout(
+                    std::chrono::seconds(lift_proxy_request_timeout_),
+                    [this, from] {
+                        std::lock_guard lock {mutex_};
+                        commited_lift_proxy_roles_.erase(from);
+                    },
+                    false);
+            }
+
+            if (!commited_lift_proxy_roles_
+                     .emplace(from, CommitedProxyRoleData {msg.part_size, timeout})
+                     .second)
+            {
+                lock.unlock();
+                LOG(WARNING) << "RequestLiftProxy from " << network::conversion::to_string(from)
+                             << " already received";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
         }
 
-        lock.unlock();
         reply->status_code = protocol::StatusCode::OK;
         protocol_message_handler_->send_reply(from, std::move(reply)).wait();
     });
@@ -768,14 +812,10 @@ void FileTransferFlowImpl::handle_request_lift_proxy(
 void FileTransferFlowImpl::handle_init_upload(
     network::IPv4Address from, const protocol::InitUploadMessage &msg)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
-            return;
-        }
+        LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+        return;
     }
 
     add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
@@ -795,9 +835,26 @@ void FileTransferFlowImpl::handle_init_upload(
                 return;
             }
 
-            auto part_size = it->second;
-            auto it2       = pending_lift_proxy_connections_.find(msg.offer_id);
+            auto part_size = it->second.part_size;
 
+            // Remove timeout for InitUpload message
+            if (drop_point_request_timeout_ > 0)
+            {
+                timeouts_.erase(it->second.timeout);
+                it->second.timeout.reset();
+            }
+
+            // Add transfer timeout
+            std::shared_ptr<utils::Timer> transfer_timeout;
+            if (drop_point_transfer_timeout_ > 0)
+            {
+                transfer_timeout = add_timeout(
+                    std::chrono::seconds(drop_point_transfer_timeout_),
+                    [this, offer_id = msg.offer_id] { drop_point_transfer_cleanup(offer_id); },
+                    false);
+            }
+
+            auto it2 = pending_lift_proxy_connections_.find(msg.offer_id);
             if (it2 == pending_lift_proxy_connections_.end())
             {
                 // Lift proxy not yet connected, create temporary storage
@@ -812,16 +869,18 @@ void FileTransferFlowImpl::handle_init_upload(
                     return;
                 }
 
-                ongoing_drop_point_transfers_.emplace(msg.offer_id,
-                    OngoingDropPointTransferData {from, part_size, storage_handle, false, 0, 0});
+                ongoing_drop_point_transfers_.emplace(
+                    msg.offer_id, OngoingDropPointTransferData {from, part_size, storage_handle,
+                                      false, 0, 0, transfer_timeout});
             }
             else
             {
                 // Lift proxy already sent InitDownload, no need for temp storage
                 commited_temp_storage_ -= part_size;
-                ongoing_drop_point_transfers_.emplace(msg.offer_id,
-                    OngoingDropPointTransferData {from, part_size,
-                        storage::TemporaryDataStorage::invalid_handle, true, it2->second, 0});
+                ongoing_drop_point_transfers_.emplace(
+                    msg.offer_id, OngoingDropPointTransferData {from, part_size,
+                                      storage::TemporaryDataStorage::invalid_handle, true,
+                                      it2->second, 0, transfer_timeout});
                 pending_lift_proxy_connections_.erase(it2);
             }
         }
@@ -834,14 +893,10 @@ void FileTransferFlowImpl::handle_init_upload(
 void FileTransferFlowImpl::handle_upload(
     network::IPv4Address from, const protocol::UploadMessage &msg)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
-            return;
-        }
+        LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+        return;
     }
 
     add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
@@ -883,9 +938,29 @@ void FileTransferFlowImpl::handle_upload(
                     return;
                 }
 
-                // This node is a drop point for this transfer
+                // This node is a lift proxy for this transfer
                 lock.unlock();
                 handle_upload_as_lift_proxy(from, msg);
+                return;
+            }
+        }
+
+        {
+            auto it = inbound_transfers_.find(msg.offer_id);
+            if (it != inbound_transfers_.end())
+            {
+                if (it->second.parts_by_source.count(from) == 0)
+                {
+                    lock.unlock();
+                    LOG(WARNING) << "Unexpected upload message source";
+                    reply->status_code = protocol::StatusCode::DENY;
+                    protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                    return;
+                }
+
+                // This node is the endpoint of this transfer
+                lock.unlock();
+                handle_upload_as_endpoint(from, msg);
                 return;
             }
         }
@@ -906,25 +981,45 @@ void FileTransferFlowImpl::handle_upload_as_drop_point(
     reply->status_code = protocol::StatusCode::OK;
     protocol_message_handler_->send_reply(from, std::move(reply)).wait();
 
-    std::unique_lock lock {mutex_};
-
-    auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
-    if (it == ongoing_drop_point_transfers_.end())
+    OngoingDropPointTransferData transfer;
     {
-        LOG(FATAL) << "Assertion failed: invalid call to handle_upload_as_drop_point";
-        return;
+        std::lock_guard lock {mutex_};
+
+        auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
+        if (it == ongoing_drop_point_transfers_.end())
+        {
+            LOG(FATAL) << "Assertion failed: invalid call to handle_upload_as_drop_point";
+            return;
+        }
+
+        transfer = it->second;
     }
 
     bool cleanup = false;
 
-    if (it->second.lift_proxy_connected)
+    // Restart timeout
+    if (drop_point_transfer_timeout_ > 0)
+    {
+        std::lock_guard lock {mutex_};
+        transfer.timeout->restart();
+    }
+
+    if (transfer.lift_proxy_connected)
     {
         // Lift proxy connected, just forward message to it
-        network::IPv4Address lift_proxy_address = it->second.lift_proxy;
-        it->second.bytes_transferred += protocol::PartSize(msg.data.size());
-        protocol::PartSize bytes_transferred = it->second.bytes_transferred;
-        protocol::PartSize bytes_to_transfer = it->second.part_size;
-        lock.unlock();
+        network::IPv4Address lift_proxy_address = transfer.lift_proxy;
+        protocol::PartSize   bytes_transferred  = transfer.bytes_transferred;
+        protocol::PartSize   bytes_to_transfer  = transfer.part_size;
+
+        {
+            std::lock_guard lock {mutex_};
+            auto            it = ongoing_drop_point_transfers_.find(msg.offer_id);
+            if (it == ongoing_drop_point_transfers_.end())
+            {
+                return;
+            }
+            it->second.bytes_transferred += protocol::PartSize(msg.data.size());
+        }
 
         auto forwarded_msg        = std::make_unique<protocol::UploadMessage>(msg);
         forwarded_msg->request_id = rng_.next<protocol::RequestId>();
@@ -947,10 +1042,11 @@ void FileTransferFlowImpl::handle_upload_as_drop_point(
     else
     {
         // Unknown lift proxy address, store data chunk in temporary storage
+        auto storage_handle = transfer.storage_handle;
+
         if (!temporary_storage_->write(
-                it->second.storage_handle, msg.offset, msg.data.size(), msg.data.data()))
+                storage_handle, msg.offset, msg.data.size(), msg.data.data()))
         {
-            lock.unlock();
             LOG(ERROR) << "Cannot write to temporary storage";
             cleanup = true;
         }
@@ -958,19 +1054,7 @@ void FileTransferFlowImpl::handle_upload_as_drop_point(
 
     if (cleanup)
     {
-        lock.lock();
-        it = ongoing_drop_point_transfers_.find(msg.offer_id);
-        if (it == ongoing_drop_point_transfers_.end())
-        {
-            return;
-        }
-        if (!it->second.lift_proxy_connected)
-        {
-            commited_temp_storage_ -= it->second.part_size;
-            temporary_storage_->remove(it->second.storage_handle);
-        }
-        commited_drop_point_roles_.erase(it->second.uploader);
-        ongoing_drop_point_transfers_.erase(it);
+        drop_point_transfer_cleanup(msg.offer_id);
     }
 }
 
@@ -983,22 +1067,40 @@ void FileTransferFlowImpl::handle_upload_as_lift_proxy(
     reply->status_code = protocol::StatusCode::OK;
     protocol_message_handler_->send_reply(from, std::move(reply)).wait();
 
-    std::unique_lock lock {mutex_};
-
-    auto it = ongoing_lift_proxy_transfers_.find(msg.offer_id);
-    if (it == ongoing_lift_proxy_transfers_.end())
+    OngoingLiftProxyTransferData transfer;
     {
-        LOG(FATAL) << "Assertion failed: invalid call to handle_upload_as_lift_proxy";
-        return;
+        std::lock_guard lock {mutex_};
+        auto            it = ongoing_lift_proxy_transfers_.find(msg.offer_id);
+        if (it == ongoing_lift_proxy_transfers_.end())
+        {
+            LOG(FATAL) << "Assertion failed: invalid call to handle_upload_as_lift_proxy";
+            return;
+        }
+        transfer = it->second;
+    }
+
+    // Restart timeout
+    if (lift_proxy_transfer_timeout_ > 0)
+    {
+        std::lock_guard lock {mutex_};
+        transfer.timeout->restart();
     }
 
     bool cleanup = false;
 
-    network::IPv4Address downloader_address = it->second.downloader;
-    it->second.bytes_transferred += protocol::PartSize(msg.data.size());
-    protocol::PartSize bytes_transferred = it->second.bytes_transferred;
-    protocol::PartSize bytes_to_transfer = it->second.part_size;
-    lock.unlock();
+    network::IPv4Address downloader_address = transfer.downloader;
+    protocol::PartSize   bytes_transferred  = transfer.bytes_transferred;
+    protocol::PartSize   bytes_to_transfer  = transfer.part_size;
+
+    {
+        std::lock_guard lock {mutex_};
+        auto            it = ongoing_lift_proxy_transfers_.find(msg.offer_id);
+        if (it == ongoing_lift_proxy_transfers_.end())
+        {
+            return;
+        }
+        it->second.bytes_transferred += protocol::PartSize(msg.data.size());
+    }
 
     auto forwarded_msg        = std::make_unique<protocol::UploadMessage>(msg);
     forwarded_msg->request_id = rng_.next<protocol::RequestId>();
@@ -1019,47 +1121,153 @@ void FileTransferFlowImpl::handle_upload_as_lift_proxy(
 
     if (cleanup)
     {
-        lock.lock();
-        it = ongoing_lift_proxy_transfers_.find(msg.offer_id);
-        if (it == ongoing_lift_proxy_transfers_.end())
+        lift_proxy_tranfer_cleanup(msg.offer_id);
+    }
+}
+
+void FileTransferFlowImpl::handle_upload_as_endpoint(
+    network::IPv4Address from, const protocol::UploadMessage &msg)
+{
+    InboundTransfer transfer;
+    {
+        std::lock_guard lock {mutex_};
+
+        auto it = inbound_transfers_.find(msg.offer_id);
+        if (it == inbound_transfers_.end())
         {
             return;
         }
-        commited_drop_point_roles_.erase(it->second.drop_point);
-        ongoing_lift_proxy_transfers_.erase(it);
+
+        transfer = it->second;
+    }
+
+    protocol::OfferId offer_id = transfer.transfer_handle.data()->offer_id;
+
+    auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+    reply->request_id = msg.request_id;
+
+    if (check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
+    {
+        reply->status_code = protocol::StatusCode::DENY;
+        protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+        return;
+    }
+
+    // Reset timeout
+    if (receive_file_timeout_ > 0)
+    {
+        std::lock_guard lock {mutex_};
+        transfer.timeout->restart();
+    }
+
+    reply->status_code = protocol::StatusCode::OK;
+    protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+
+    bool cleanup = false;
+
+    const protocol::TransferKey &packed_key = transfer.transfer_handle.data()->transfer_key;
+    std::string                  file_hash  = transfer.file_hash;
+    auto                         part       = transfer.parts_by_source.at(from);
+
+    // Decrypt data
+    size_t               key_size = packed_key.size() / 2;
+    std::vector<uint8_t> key(key_size);
+    std::vector<uint8_t> iv(key_size);
+    {
+        auto src = packed_key.cbegin();
+        std::copy_n(src, key_size, key.begin());
+        std::advance(src, key_size);
+        std::copy_n(src, key_size, iv.begin());
+    }
+
+    std::vector<uint8_t> plain_text =
+        aes_->decrypt(crypto::AESCipher::CBC, key, iv, msg.data, *executer_).get();
+    size_t chunk_size = plain_text.size();
+    size_t chunk_pos  = part.part_offset + msg.offset;
+
+    // Remove padding bytes
+    if (msg.offset + chunk_size > part.part_size)
+    {
+        chunk_size = part.part_size - msg.offset;
+    }
+
+    // Write to file
+    if (!file_storage_->write_file(file_hash, chunk_pos, chunk_size, plain_text.data()))
+    {
+        LOG(ERROR) << "Cannot write to file " << file_hash;
+        cleanup = true;
+    }
+
+    {
+        std::lock_guard lock {mutex_};
+
+        auto it = inbound_transfers_.find(msg.offer_id);
+        if (it == inbound_transfers_.end())
+        {
+            return;
+        }
+
+        it->second.bytes_transferred += chunk_size;
+        transfer.bytes_transferred = it->second.bytes_transferred;
+    }
+
+    if (transfer.bytes_transferred >= transfer.file_size)
+    {
+        // Transfer done
+        listener_group_.notify(
+            &FileTransferFlowListener::on_transfer_completed, transfer.transfer_handle);
+        cleanup = true;
+    }
+    else
+    {
+        // Notify transfer progress
+        listener_group_.notify(&FileTransferFlowListener::on_transfer_progress_changed,
+            transfer.transfer_handle, transfer.bytes_transferred, transfer.file_size);
+    }
+
+    if (cleanup)
+    {
+        std::lock_guard lock {mutex_};
+        inbound_transfers_.erase(offer_id);
+        pending_transfer_cancellations_.erase(offer_id);
     }
 }
 
 void FileTransferFlowImpl::handle_fetch(
     network::IPv4Address from, const protocol::FetchMessage &msg)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
-            return;
-        }
+        LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+        return;
     }
 
     add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
         auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
         reply->request_id = msg.request_id;
 
-        std::unique_lock lock {mutex_};
-        auto             it = commited_lift_proxy_roles_.find(from);
-        if (it == commited_lift_proxy_roles_.end())
-        {
-            lock.unlock();
-            LOG(WARNING) << "Unexpected Fetch message received";
-            reply->status_code = protocol::StatusCode::DENY;
-            protocol_message_handler_->send_reply(from, std::move(reply)).wait();
-            return;
-        }
-        protocol::PartSize part_size = it->second;
+        protocol::PartSize part_size;
 
-        lock.unlock();
+        {
+            std::unique_lock lock {mutex_};
+            auto             it = commited_lift_proxy_roles_.find(from);
+            if (it == commited_lift_proxy_roles_.end())
+            {
+                lock.unlock();
+                LOG(WARNING) << "Unexpected Fetch message received";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+            part_size = it->second.part_size;
+
+            // Remove timeout for Fetch message
+            if (lift_proxy_request_timeout_ > 0)
+            {
+                timeouts_.erase(it->second.timeout);
+                it->second.timeout.reset();
+            }
+        }
 
         auto init_download_msg        = std::make_unique<protocol::InitDownloadMessage>();
         init_download_msg->request_id = rng_.next<protocol::RequestId>();
@@ -1068,9 +1276,11 @@ void FileTransferFlowImpl::handle_fetch(
             protocol_message_handler_->send(msg.drop_point, std::move(init_download_msg)).get();
         if (init_download_reply->status_code != protocol::StatusCode::OK)
         {
-            lock.lock();
-            commited_lift_proxy_roles_.erase(from);
-            lock.unlock();
+            {
+                std::lock_guard lock {mutex_};
+                commited_lift_proxy_roles_.erase(from);
+            }
+
             LOG(WARNING) << "Cannot send InitDownload message to "
                          << network::conversion::to_string(msg.drop_point) << ". Got status code "
                          << static_cast<int>(init_download_reply->status_code) << ".";
@@ -1079,10 +1289,23 @@ void FileTransferFlowImpl::handle_fetch(
             return;
         }
 
-        lock.lock();
-        ongoing_lift_proxy_transfers_.emplace(
-            msg.offer_id, OngoinLiftProxyTransferData {from, msg.drop_point, part_size, 0});
-        lock.unlock();
+        {
+            std::lock_guard lock {mutex_};
+
+            // Add transfer timeout
+            std::shared_ptr<utils::Timer> transfer_timeout;
+            if (lift_proxy_transfer_timeout_ > 0)
+            {
+                transfer_timeout = add_timeout(
+                    std::chrono::seconds(lift_proxy_transfer_timeout_),
+                    [this, offer_id = msg.offer_id] { lift_proxy_tranfer_cleanup(offer_id); },
+                    false);
+            }
+
+            ongoing_lift_proxy_transfers_.emplace(
+                msg.offer_id, OngoingLiftProxyTransferData {
+                                  from, msg.drop_point, part_size, 0, transfer_timeout});
+        }
 
         reply->status_code = protocol::StatusCode::OK;
         protocol_message_handler_->send_reply(from, std::move(reply)).wait();
@@ -1092,46 +1315,53 @@ void FileTransferFlowImpl::handle_fetch(
 void FileTransferFlowImpl::handle_init_download(
     network::IPv4Address from, const protocol::InitDownloadMessage &msg)
 {
+    if (state() != State::RUNNING)
     {
-        std::lock_guard lock {mutex_};
-
-        if (state_ != State::RUNNING)
-        {
-            LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
-            return;
-        }
+        LOG(WARNING) << "FileTransferFlow not started. Ignoring message.";
+        return;
     }
 
     add_job(io_executer_, [this, from, msg](const auto & /*completion_token*/) {
         auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
         reply->request_id = msg.request_id;
 
-        std::unique_lock lock {mutex_};
-
         bool failure          = false;
         bool init_upload_sent = false;
 
-        auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
-        if (it == ongoing_drop_point_transfers_.end())
+        storage::TemporaryDataStorage::Handle storage_handle;
+        protocol::PartSize                    part_size;
+
         {
-            // InitUpload not sent yet
-            if (pending_lift_proxy_connections_.emplace(msg.offer_id, from).second == false)
+            std::lock_guard lock {mutex_};
+
+            auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
+            if (it == ongoing_drop_point_transfers_.end())
             {
-                failure = true;
+                // InitUpload not sent yet
+                if (pending_lift_proxy_connections_.emplace(msg.offer_id, from).second == false)
+                {
+                    failure = true;
+                }
             }
-        }
-        else
-        {
-            if (it->second.lift_proxy_connected)
+            else
             {
-                failure = true;
+                if (it->second.lift_proxy_connected)
+                {
+                    failure = true;
+                }
+                init_upload_sent = true;
             }
-            init_upload_sent = true;
+
+            // Remember lift proxy address
+            it->second.lift_proxy_connected = true;
+            it->second.lift_proxy           = from;
+
+            storage_handle = it->second.storage_handle;
+            part_size      = it->second.part_size;
         }
 
         if (failure)
         {
-            lock.unlock();
             LOG(WARNING) << "Unexpected InitDownload message";
             reply->status_code = protocol::StatusCode::DENY;
             protocol_message_handler_->send_reply(from, std::move(reply)).wait();
@@ -1149,7 +1379,9 @@ void FileTransferFlowImpl::handle_init_download(
         protocol_message_handler_->send_reply(from, std::move(reply)).wait();
 
         auto cleanup_fun = [&, this] {
-            it = ongoing_drop_point_transfers_.find(msg.offer_id);
+            std::lock_guard lock {mutex_};
+
+            auto it = ongoing_drop_point_transfers_.find(msg.offer_id);
             if (it == ongoing_drop_point_transfers_.end())
             {
                 return;
@@ -1163,17 +1395,8 @@ void FileTransferFlowImpl::handle_init_download(
             ongoing_drop_point_transfers_.erase(it);
         };
 
-        // Remember lift proxy address
-        it->second.lift_proxy_connected = true;
-        it->second.lift_proxy           = from;
-
-        // Remove temporary storage
-        temporary_storage_->remove(it->second.storage_handle);
-        it->second.storage_handle = storage::TemporaryDataStorage::invalid_handle;
-        commited_temp_storage_ -= it->second.part_size;
-
         // Send all temporary stored data
-        auto read_handle = temporary_storage_->start_reading(it->second.storage_handle);
+        auto read_handle = temporary_storage_->start_reading(storage_handle);
         if (!read_handle)
         {
             LOG(ERROR) << "Cannot read from temporary storage";
@@ -1189,7 +1412,9 @@ void FileTransferFlowImpl::handle_init_download(
             if (!temporary_storage_->read_next_chunk(
                     read_handle, max_chunk_size_, chunk_offset, chunk_size, chunk_data.data()))
             {
-                break;
+                LOG(ERROR) << "Cannot read from temporary storage";
+                cleanup_fun();
+                return;
             }
 
             auto upload_msg        = std::make_unique<protocol::UploadMessage>();
@@ -1209,10 +1434,34 @@ void FileTransferFlowImpl::handle_init_download(
                 return;
             }
 
-            it->second.bytes_transferred += protocol::PartSize(chunk_size);
+            {
+                std::lock_guard lock {mutex_};
+                auto            it = ongoing_drop_point_transfers_.find(msg.offer_id);
+                if (it == ongoing_drop_point_transfers_.end())
+                {
+                    return;
+                }
+                it->second.bytes_transferred += protocol::PartSize(chunk_size);
+            }
         }
 
-        if (it->second.bytes_transferred >= it->second.part_size)
+        // Remove temporary storage
+        temporary_storage_->remove(storage_handle);
+        protocol::PartSize bytes_transferred;
+
+        {
+            std::lock_guard lock {mutex_};
+            auto            it = ongoing_drop_point_transfers_.find(msg.offer_id);
+            if (it == ongoing_drop_point_transfers_.end())
+            {
+                return;
+            }
+            it->second.storage_handle = storage::TemporaryDataStorage::invalid_handle;
+            commited_temp_storage_ -= it->second.part_size;
+            bytes_transferred = it->second.bytes_transferred;
+        }
+
+        if (bytes_transferred >= part_size)
         {
             cleanup_fun();
         }
@@ -1297,26 +1546,81 @@ utils::CompletionToken FileTransferFlowImpl::add_job(
 bool FileTransferFlowImpl::check_if_outbound_transfer_cancelled_and_cleanup(
     protocol::OfferId offer_id)
 {
-    std::lock_guard lock {mutex_};
-    if (pending_transfer_cancellations_.count(offer_id) != 0)
+    bool cancelled = false;
+
     {
-        pending_transfer_cancellations_.erase(offer_id);
-        outbound_transfers_.erase(offer_id);
-        return true;
+        std::lock_guard lock {mutex_};
+        cancelled = pending_transfer_cancellations_.count(offer_id) != 0;
     }
-    return false;
+
+    if (cancelled)
+    {
+        outbound_transfer_cleanup(offer_id);
+    }
+
+    return cancelled;
 }
 
 bool FileTransferFlowImpl::check_if_inbound_transfer_cancelled_and_cleanup(
     protocol::OfferId offer_id)
 {
-    std::lock_guard lock {mutex_};
-    if (pending_transfer_cancellations_.count(offer_id) != 0)
+    bool cancelled = false;
+
     {
-        pending_transfer_cancellations_.erase(offer_id);
-        inbound_transfers_.erase(offer_id);
-        return true;
+        std::lock_guard lock {mutex_};
+        cancelled = pending_transfer_cancellations_.count(offer_id) != 0;
     }
-    return false;
+
+    if (cancelled)
+    {
+        inbound_transfer_cleanup(offer_id);
+    }
+
+    return cancelled;
+}
+
+void FileTransferFlowImpl::outbound_transfer_cleanup(protocol::OfferId offer_id)
+{
+    std::lock_guard lock {mutex_};
+    pending_transfer_cancellations_.erase(offer_id);
+    outbound_transfers_.erase(offer_id);
+}
+
+void FileTransferFlowImpl::inbound_transfer_cleanup(protocol::OfferId offer_id)
+{
+    std::lock_guard lock {mutex_};
+    pending_transfer_cancellations_.erase(offer_id);
+    inbound_transfers_.erase(offer_id);
+}
+
+void FileTransferFlowImpl::drop_point_transfer_cleanup(protocol::OfferId offer_id)
+{
+    std::lock_guard lock {mutex_};
+
+    auto it = ongoing_drop_point_transfers_.find(offer_id);
+    if (it == ongoing_drop_point_transfers_.end())
+    {
+        return;
+    }
+    if (!it->second.lift_proxy_connected)
+    {
+        commited_temp_storage_ -= it->second.part_size;
+        temporary_storage_->remove(it->second.storage_handle);
+    }
+    commited_drop_point_roles_.erase(it->second.uploader);
+    ongoing_drop_point_transfers_.erase(it);
+}
+
+void FileTransferFlowImpl::lift_proxy_tranfer_cleanup(protocol::OfferId offer_id)
+{
+    std::lock_guard lock {mutex_};
+
+    auto it = ongoing_lift_proxy_transfers_.find(offer_id);
+    if (it == ongoing_lift_proxy_transfers_.end())
+    {
+        return;
+    }
+    commited_drop_point_roles_.erase(it->second.drop_point);
+    ongoing_lift_proxy_transfers_.erase(it);
 }
 }  // namespace sand::flows

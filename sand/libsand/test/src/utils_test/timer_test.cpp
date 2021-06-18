@@ -166,3 +166,40 @@ TEST_F(TimerTest, DoubleStop)
     EXPECT_TRUE(timer.stop());
     EXPECT_FALSE(timer.stop());
 }
+
+TEST_F(TimerTest, Restart)
+{
+    constexpr std::chrono::milliseconds period {100};
+    constexpr std::chrono::milliseconds restart_delay {50};
+    constexpr float                     acceptable_error = 0.025f;
+    constexpr std::chrono::milliseconds timeout {
+        round<long>((period.count() + restart_delay.count()) * (1 + acceptable_error))};
+
+    Timer                     timer {executer_};
+    bool                      called = false;
+    std::mutex                mut;
+    std::condition_variable   cv;
+    std::chrono::milliseconds actual_period;
+
+    auto start = now();
+    EXPECT_TRUE(timer.start(
+        period,
+        [&] {
+            actual_period = std::chrono::duration_cast<decltype(actual_period)>(now() - start);
+            {
+                std::lock_guard lock {mut};
+                called = true;
+            }
+            cv.notify_one();
+        },
+        true));
+
+    std::this_thread::sleep_for(restart_delay);
+    timer.restart();
+
+    std::unique_lock lock {mut};
+    EXPECT_TRUE(cv.wait_for(lock, timeout, [&] { return called; }));
+    EXPECT_LE(
+        std::fabs(float(actual_period.count()) / (period.count() + restart_delay.count()) - 1),
+        acceptable_error);
+}
