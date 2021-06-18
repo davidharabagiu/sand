@@ -8,8 +8,6 @@
 using namespace ::sand::crypto;
 using namespace ::sand::utils;
 
-namespace sand
-{
 class AESCipherMock : AESCipher
 {
 public:
@@ -22,6 +20,5 @@ public:
         (ModeOfOperation, const ByteVector &, const ByteVector &, const ByteVector &, Executer &),
         (override));
 };
-}  // namespace sand
 
 #endif  // SAND_TEST_AESCIPHER_MOCK_HPP_
