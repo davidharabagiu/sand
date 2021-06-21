@@ -544,16 +544,16 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
         auto next_part_it = parts.cbegin();
         while (lift_proxies.size() != parts.size())
         {
-            auto peers = peer_address_provider_
-                             ->get_peers(int(parts.size() - lift_proxies.size()), lift_proxies)
-                             .get();
+            size_t peers_to_request = parts.size() - lift_proxies.size();
+            auto   peers =
+                peer_address_provider_->get_peers(int(peers_to_request), lift_proxies).get();
             if (completion_token.is_cancelled() ||
                 check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
             {
                 return;
             }
 
-            if (peers.size() < parts.size())
+            if (peers.size() < peers_to_request)
             {
                 std::string err_string = "Cannot establish lift proxies for transfer";
                 LOG(WARNING) << err_string;
@@ -1163,11 +1163,12 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
     reply->status_code = protocol::StatusCode::OK;
     protocol_message_handler_->send_reply(from, std::move(reply)).wait();
 
-    bool cleanup = false;
+    bool cleanup     = false;
+    bool delete_file = false;
 
     const protocol::TransferKey &packed_key = transfer.transfer_handle.data()->transfer_key;
-    std::string                  file_hash  = transfer.file_hash;
-    auto                         part       = transfer.parts_by_source.at(from);
+    std::string file_hash = transfer.transfer_handle.data()->search_handle.file_hash;
+    auto        part      = transfer.parts_by_source.at(from);
 
     // Decrypt data
     size_t               key_size = packed_key.size() / 2;
@@ -1195,7 +1196,8 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
     if (!file_storage_->write_file(file_hash, chunk_pos, chunk_size, plain_text.data()))
     {
         LOG(ERROR) << "Cannot write to file " << file_hash;
-        cleanup = true;
+        cleanup     = true;
+        delete_file = true;
     }
 
     {
@@ -1211,6 +1213,10 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
         transfer.bytes_transferred = it->second.bytes_transferred;
     }
 
+    // Notify transfer progress
+    listener_group_.notify(&FileTransferFlowListener::on_transfer_progress_changed,
+        transfer.transfer_handle, transfer.bytes_transferred, transfer.file_size);
+
     if (transfer.bytes_transferred >= transfer.file_size)
     {
         // Transfer done
@@ -1218,15 +1224,18 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
             &FileTransferFlowListener::on_transfer_completed, transfer.transfer_handle);
         cleanup = true;
     }
-    else
-    {
-        // Notify transfer progress
-        listener_group_.notify(&FileTransferFlowListener::on_transfer_progress_changed,
-            transfer.transfer_handle, transfer.bytes_transferred, transfer.file_size);
-    }
 
     if (cleanup)
     {
+        if (delete_file)
+        {
+            file_storage_->delete_file(file_hash);
+        }
+        else
+        {
+            file_storage_->close_file(file_hash);
+        }
+
         std::lock_guard lock {mutex_};
         inbound_transfers_.erase(offer_id);
         pending_transfer_cancellations_.erase(offer_id);
@@ -1412,9 +1421,7 @@ void FileTransferFlowImpl::handle_init_download(
             if (!temporary_storage_->read_next_chunk(
                     read_handle, max_chunk_size_, chunk_offset, chunk_size, chunk_data.data()))
             {
-                LOG(ERROR) << "Cannot read from temporary storage";
-                cleanup_fun();
-                return;
+                break;
             }
 
             auto upload_msg        = std::make_unique<protocol::UploadMessage>();
@@ -1456,9 +1463,9 @@ void FileTransferFlowImpl::handle_init_download(
             {
                 return;
             }
-            it->second.storage_handle = storage::TemporaryDataStorage::invalid_handle;
             commited_temp_storage_ -= it->second.part_size;
-            bytes_transferred = it->second.bytes_transferred;
+            it->second.storage_handle = storage::TemporaryDataStorage::invalid_handle;
+            bytes_transferred         = it->second.bytes_transferred;
         }
 
         if (bytes_transferred >= part_size)
@@ -1488,7 +1495,9 @@ void FileTransferFlowImpl::stop_impl()
         return;
     }
 
+    lock.unlock();
     set_state(State::STOPPING);
+    lock.lock();
 
     auto runnings_jobs_copy = running_jobs_;
     lock.unlock();

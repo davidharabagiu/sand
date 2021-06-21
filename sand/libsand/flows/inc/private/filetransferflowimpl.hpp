@@ -155,7 +155,6 @@ private:
         protocol::FileSize                       file_size;
         protocol::FileSize                       bytes_transferred;
         TransferHandle                           transfer_handle {};
-        std::string                              file_hash;
         std::shared_ptr<utils::Timer>            timeout;
     };
 

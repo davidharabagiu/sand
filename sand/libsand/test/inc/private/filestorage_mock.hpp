@@ -15,6 +15,7 @@ public:
     MOCK_METHOD(
         bool, write_file, (const std::string &, size_t, size_t, const uint8_t *), (override));
     MOCK_METHOD(bool, close_file, (const std::string &), (override));
+    MOCK_METHOD(bool, delete_file, (const std::string &), (override));
 };
 
 #endif  // SAND_TEST_FILESTORAGE_MOCK_HPP_
