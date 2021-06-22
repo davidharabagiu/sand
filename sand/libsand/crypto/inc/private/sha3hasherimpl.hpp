@@ -28,7 +28,7 @@ private:
     {
         std::vector<Byte> buffer(buffer_size);
 
-        auto digest = static_cast<Byte *>(OPENSSL_malloc(SHA224_DIGEST_LENGTH));
+        auto digest = static_cast<Byte *>(OPENSSL_malloc(digest_length));
         if (!digest)
         {
             LOG(FATAL) << "OPENSSL_malloc failed";
@@ -50,7 +50,7 @@ private:
             size_t cnt = 0;
             while (cnt != buffer_size)
             {
-                buffer[cnt++] = *it++;
+                buffer[cnt++] = Byte(*it++);
                 if (it == data_end)
                 {
                     break;

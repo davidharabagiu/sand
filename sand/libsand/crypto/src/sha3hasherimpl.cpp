@@ -5,7 +5,7 @@
 
 namespace sand::crypto
 {
-using IStreamBufIt = std::istreambuf_iterator<SHA3Hasher::Byte, std::char_traits<SHA3Hasher::Byte>>;
+using IStreamBufIt = std::istreambuf_iterator<char>;
 
 std::vector<SHA3Hasher::Byte> SHA3HasherImpl::hash(SHA3_224_t, const Byte *data, size_t len)
 {

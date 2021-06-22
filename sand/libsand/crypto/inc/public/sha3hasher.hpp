@@ -26,7 +26,7 @@ public:
     static constexpr SHA3_512_t SHA3_512 {};
 
     using Byte        = uint8_t;
-    using InputStream = std::basic_istream<Byte, std::char_traits<Byte>>;
+    using InputStream = std::istream;
 
     virtual std::vector<Byte> hash(SHA3_224_t, const Byte *data, size_t len) = 0;
     virtual std::vector<Byte> hash(SHA3_256_t, const Byte *data, size_t len) = 0;
