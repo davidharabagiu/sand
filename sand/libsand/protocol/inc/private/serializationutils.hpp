@@ -49,7 +49,7 @@ auto deserialize_field(T &field, InputIt src_begin, InputIt src_end, bool &ok)
     auto dest = reinterpret_cast<uint8_t *>(&field);
 
 #ifdef IS_BIG_ENDIAN
-    std::copy_n(std::make_reverse_iterator(src_begin), src_count, dest);
+    std::copy_n(std::make_reverse_iterator(src_end), src_count, dest);
 #else
     std::copy_n(src_begin, sizeof(T), dest);
 #endif  // IS_BIG_ENDIAN
