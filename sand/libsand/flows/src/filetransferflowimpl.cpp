@@ -167,8 +167,8 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
         return future;
     }
 
-    auto [file_hash, decode_ok] = file_hash_interpreter_->decode(search_handle.data()->file_hash);
-    if (!decode_ok)
+    protocol::AHash file_hash;
+    if (!file_hash_interpreter_->decode(search_handle.data()->file_hash, file_hash))
     {
         LOG(WARNING) << "File hash decoding error: " << search_handle.data()->file_hash;
         promise->set_value(TransferHandle {});
@@ -273,9 +273,9 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
         return false;
     }
 
-    const std::string &file_hash    = transfer_handle.data()->search_handle.file_hash;
-    auto [bin_file_hash, decode_ok] = file_hash_interpreter_->decode(file_hash);
-    if (!decode_ok)
+    const std::string &file_hash = transfer_handle.data()->search_handle.file_hash;
+    protocol::AHash    bin_file_hash;
+    if (!file_hash_interpreter_->decode(file_hash, bin_file_hash))
     {
         LOG(WARNING) << "File hash decoding error: " << file_hash;
         return false;
@@ -508,9 +508,9 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
         return false;
     }
 
-    const std::string &file_hash    = transfer_handle.data()->search_handle.file_hash;
-    auto [bin_file_hash, decode_ok] = file_hash_interpreter_->decode(file_hash);
-    if (!decode_ok)
+    const std::string &file_hash = transfer_handle.data()->search_handle.file_hash;
+    protocol::AHash    bin_file_hash;
+    if (!file_hash_interpreter_->decode(file_hash, bin_file_hash))
     {
         LOG(WARNING) << "File hash decoding error: " << file_hash;
         return false;

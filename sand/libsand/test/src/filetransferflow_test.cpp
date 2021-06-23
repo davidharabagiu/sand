@@ -199,8 +199,8 @@ TEST_F(FileTransferFlowTest, CreateOffer_OnePart)
         std::make_shared<SearchHandleImpl>(file_hash, search_id, sender_public_key)};
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*aes_, generate_key_and_iv(AESCipher::AES128, AESCipher::CBC, _, _))
         .WillByDefault(DoAll(SetArgReferee<2>(key), SetArgReferee<3>(iv), Return(true)));
@@ -263,8 +263,8 @@ TEST_F(FileTransferFlowTest, CreateOffer_MultipleParts)
         std::make_shared<SearchHandleImpl>(file_hash, search_id, sender_public_key)};
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*aes_, generate_key_and_iv(AESCipher::AES128, AESCipher::CBC, _, _))
         .WillByDefault(DoAll(SetArgReferee<2>(key), SetArgReferee<3>(iv), Return(true)));
@@ -364,8 +364,7 @@ TEST_F(FileTransferFlowTest, CreateOffer_FileHashDecodingError)
         std::make_shared<SearchHandleImpl>(file_hash, search_id, sender_public_key)};
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(AHash {}, false)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _)).WillByDefault(Return(false));
 
     auto flow = make_flow();
     flow->start();
@@ -388,8 +387,8 @@ TEST_F(FileTransferFlowTest, CreateOffer_NotEnoughPeers)
         std::make_shared<SearchHandleImpl>(file_hash, search_id, sender_public_key)};
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(1, _))
@@ -427,8 +426,8 @@ TEST_F(FileTransferFlowTest, CreateOffer_PeerRefusesDropPointRequest)
         std::make_shared<SearchHandleImpl>(file_hash, search_id, sender_public_key)};
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*aes_, generate_key_and_iv(AESCipher::AES128, AESCipher::CBC, _, _))
         .WillByDefault(DoAll(SetArgReferee<2>(key), SetArgReferee<3>(iv), Return(true)));
@@ -488,8 +487,8 @@ TEST_F(FileTransferFlowTest, SendFile)
     std::vector<uint8_t> file_content(file_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*file_storage_, read_file(transfer_handle_data->search_handle.file_hash, _, _, _))
         .WillByDefault([&](const std::string &, size_t offset, size_t amount, uint8_t *out) {
@@ -582,8 +581,8 @@ TEST_F(FileTransferFlowTest, SendFile_PeerDeniesInitUpload)
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
 
     EXPECT_CALL(*protocol_message_handler_,
@@ -623,8 +622,8 @@ TEST_F(FileTransferFlowTest, SendFile_PeerDeniesUpload)
     std::vector<uint8_t> file_content(file_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*file_storage_, read_file(transfer_handle_data->search_handle.file_hash, _, _, _))
         .WillByDefault([&](const std::string &, size_t offset, size_t amount, uint8_t *out) {
@@ -694,8 +693,8 @@ TEST_F(FileTransferFlowTest, ReceiveFile)
     std::vector<uint8_t> file_content(file_size), received_file_content(file_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*aes_, decrypt(AESCipher::CBC, _, _, _, _))
         .WillByDefault([&](AESCipher::ModeOfOperation, const AESCipher::ByteVector &,
@@ -822,8 +821,8 @@ TEST_F(FileTransferFlowTest, ReceiveFile_NotEnoughLiftProxiesAvailable)
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
@@ -857,8 +856,8 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesFetch)
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
@@ -923,8 +922,8 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
     std::vector<uint8_t> file_content(file_size), received_file_content(file_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*aes_, decrypt(AESCipher::CBC, _, _, _, _))
         .WillByDefault([&](AESCipher::ModeOfOperation, const AESCipher::ByteVector &,

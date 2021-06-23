@@ -179,9 +179,7 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
     protocol::SearchMessage msg;
     msg.search_id         = rng_.next<protocol::SearchId>();
     msg.sender_public_key = public_key_;
-    bool decode_ok;
-    std::tie(msg.file_hash, decode_ok) = file_hash_interpreter_->decode(file_hash);
-    if (!decode_ok)
+    if (!file_hash_interpreter_->decode(file_hash, msg.file_hash))
     {
         LOG(WARNING) << "Invalid file hash provided";
         return SearchHandle();

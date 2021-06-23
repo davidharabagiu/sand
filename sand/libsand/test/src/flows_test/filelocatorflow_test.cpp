@@ -143,8 +143,8 @@ TEST_F(FileLocatorFlowTest, InitiateSearch)
     flow->start();
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
 
@@ -184,8 +184,8 @@ TEST_F(FileLocatorFlowTest, InitiateSearch_FlowNotRunning)
     auto flow = make_flow();
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
     EXPECT_CALL(*protocol_message_handler_, send(_, _)).Times(0);
@@ -208,8 +208,8 @@ TEST_F(FileLocatorFlowTest, InitiateSearch_FileAlreadyPresent)
     flow->start();
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(true));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
     EXPECT_CALL(*protocol_message_handler_, send(_, _)).Times(0);
@@ -230,8 +230,7 @@ TEST_F(FileLocatorFlowTest, InitiateSearch_InvalidFileHash)
     flow->start();
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(AHash {}, false)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _)).WillByDefault(Return(false));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
     EXPECT_CALL(*protocol_message_handler_, send(_, _)).Times(0);
@@ -712,8 +711,8 @@ TEST_F(FileLocatorFlowTest, FileFound)
     flow->register_listener(listener_);
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
 
@@ -793,8 +792,8 @@ TEST_F(FileLocatorFlowTest, FileFound_OfferDecryptionError)
     flow->register_listener(listener_);
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
 
@@ -849,8 +848,8 @@ TEST_F(FileLocatorFlowTest, ConfirmTransfer)
     flow->register_listener(listener_);
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
 
@@ -944,8 +943,8 @@ TEST_F(FileLocatorFlowTest, ConfirmTransfer_UnknownOfferId)
     flow->register_listener(listener_);
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
-    ON_CALL(*file_hash_interpreter_, decode(file_hash))
-        .WillByDefault(Return(std::make_pair(bin_file_hash, true)));
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
+        .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action(peers));
 
