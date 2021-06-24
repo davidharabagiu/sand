@@ -15,7 +15,8 @@ target_include_directories(${TARGET_NAME}
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/private"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/private"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/network/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/flows/inc/private")
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/flows/inc/private"
+        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/storage/inc/private")
 
 find_library(GTEST_LIB gtest REQUIRED)
 find_library(GMOCK_LIB gmock REQUIRED)

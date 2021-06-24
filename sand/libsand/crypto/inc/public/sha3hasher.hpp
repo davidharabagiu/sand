@@ -28,6 +28,8 @@ public:
     using Byte        = uint8_t;
     using InputStream = std::istream;
 
+    virtual ~SHA3Hasher() = default;
+
     virtual std::vector<Byte> hash(SHA3_224_t, const Byte *data, size_t len) = 0;
     virtual std::vector<Byte> hash(SHA3_256_t, const Byte *data, size_t len) = 0;
     virtual std::vector<Byte> hash(SHA3_384_t, const Byte *data, size_t len) = 0;

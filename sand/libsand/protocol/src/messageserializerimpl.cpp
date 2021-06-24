@@ -111,13 +111,13 @@ InputIt deserialize_payload(SearchMessage &message, InputIt src_begin, InputIt s
     std::copy_n(src_begin, pub_key_size, message.sender_public_key.begin());
     std::advance(src_begin, pub_key_size);
 
-    if (!serialization::check_distance(src_begin, 92, src_end))
+    if (!serialization::check_distance(src_begin, message.file_hash.size(), src_end))
     {
         ok = false;
         return src_begin;
     }
-    std::copy_n(src_begin, 92, message.file_hash.begin());
-    std::advance(src_begin, 92);
+    std::copy_n(src_begin, message.file_hash.size(), message.file_hash.begin());
+    std::advance(src_begin, message.file_hash.size());
 
     return src_begin;
 }
@@ -162,13 +162,13 @@ InputIt deserialize_payload(UncacheMessage &message, InputIt src_begin, InputIt 
 {
     ok = true;
 
-    if (!serialization::check_distance(src_begin, 92, src_end))
+    if (!serialization::check_distance(src_begin, message.file_hash.size(), src_end))
     {
         ok = false;
         return src_begin;
     }
-    std::copy_n(src_begin, 92, message.file_hash.begin());
-    std::advance(src_begin, 92);
+    std::copy_n(src_begin, message.file_hash.size(), message.file_hash.begin());
+    std::advance(src_begin, message.file_hash.size());
 
     return src_begin;
 }

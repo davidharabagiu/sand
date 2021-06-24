@@ -21,7 +21,7 @@ using SearchId      = uint64_t;
 using OfferId       = uint64_t;
 using Byte          = uint8_t;
 using NodePublicKey = std::string;
-using AHash         = std::array<Byte, 92>;
+using AHash         = std::array<Byte, 100>;
 using TransferKey   = std::array<Byte, 32>;
 using PartSize      = uint32_t;
 using FileSize      = uint64_t;
@@ -68,8 +68,7 @@ struct Message
     explicit Message(MessageCode code)
         : message_code {code}
         , request_id {}
-    {
-    }
+    {}
 
     virtual ~Message() = default;
     [[nodiscard]] virtual std::vector<Byte> serialize(
@@ -82,8 +81,7 @@ struct PullMessage : public Message
 
     PullMessage()
         : Message {MessageCode::PULL}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -96,8 +94,7 @@ struct PushMessage : public Message
 {
     PushMessage()
         : Message {MessageCode::PUSH}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -110,8 +107,7 @@ struct ByeMessage : public Message
 {
     ByeMessage()
         : Message {MessageCode::BYE}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -126,8 +122,7 @@ struct DeadMessage : public Message
 
     DeadMessage()
         : Message {MessageCode::DEAD}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -140,8 +135,7 @@ struct PingMessage : public Message
 {
     PingMessage()
         : Message {MessageCode::PING}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -167,8 +161,7 @@ struct DNLSyncMessage : public Message
 
     DNLSyncMessage()
         : Message {MessageCode::DNLSYNC}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -185,8 +178,7 @@ struct SearchMessage : public Message
 
     SearchMessage()
         : Message {MessageCode::SEARCH}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -216,8 +208,7 @@ struct OfferMessage : public Message
 
     OfferMessage()
         : Message {MessageCode::OFFER}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -232,8 +223,7 @@ struct UncacheMessage : public Message
 
     UncacheMessage()
         : Message {MessageCode::UNCACHE}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -248,8 +238,7 @@ struct ConfirmTransferMessage : public Message
 
     ConfirmTransferMessage()
         : Message {MessageCode::CONFIRMTRANSFER}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -264,8 +253,7 @@ struct RequestDropPointMessage : public Message
 
     RequestDropPointMessage()
         : Message {MessageCode::REQUESTDROPPOINT}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -280,8 +268,7 @@ struct RequestLiftProxyMessage : public Message
 
     RequestLiftProxyMessage()
         : Message {MessageCode::REQUESTLIFTPROXY}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -296,8 +283,7 @@ struct InitUploadMessage : public Message
 
     InitUploadMessage()
         : Message {MessageCode::INITUPLOAD}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -314,8 +300,7 @@ struct UploadMessage : public Message
 
     UploadMessage()
         : Message {MessageCode::UPLOAD}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -331,8 +316,7 @@ struct FetchMessage : public Message
 
     FetchMessage()
         : Message {MessageCode::FETCH}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -347,8 +331,7 @@ struct InitDownloadMessage : public Message
 
     InitDownloadMessage()
         : Message {MessageCode::INITDOWNLOAD}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -365,8 +348,7 @@ struct BasicReply : public Message
     explicit BasicReply(MessageCode _request_message_code)
         : Message {MessageCode::REPLY}
         , request_message_code {_request_message_code}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
@@ -381,8 +363,7 @@ struct PullReply : public BasicReply
 
     PullReply()
         : BasicReply {MessageCode::PULL}
-    {
-    }
+    {}
 
     [[nodiscard]] std::vector<Byte> serialize(
         const std::shared_ptr<const MessageSerializer> &serializer) const override
