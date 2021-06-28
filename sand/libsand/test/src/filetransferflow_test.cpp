@@ -550,6 +550,8 @@ TEST_F(FileTransferFlowTest, SendFile)
         on_transfer_completed(ResultOf([](auto &&th) { return th.data(); }, transfer_handle_data)))
         .Times(1);
 
+    EXPECT_CALL(*file_storage_, close_file(file_handle)).Times(1).WillOnce(Return(true));
+
     auto flow = make_flow();
     flow->start();
     flow->register_listener(listener_);
@@ -672,6 +674,8 @@ TEST_F(FileTransferFlowTest, SendFile_PeerDeniesUpload)
         .Times(1);
     EXPECT_CALL(*listener_, on_transfer_completed(_)).Times(0);
 
+    EXPECT_CALL(*file_storage_, close_file(file_handle)).Times(1).WillOnce(Return(true));
+
     auto flow = make_flow();
     flow->start();
     flow->register_listener(listener_);
@@ -756,6 +760,8 @@ TEST_F(FileTransferFlowTest, ReceiveFile)
         on_transfer_completed(ResultOf([](auto &&th) { return th.data(); }, transfer_handle_data)))
         .Times(1);
 
+    EXPECT_CALL(*file_storage_, close_file(file_handle)).Times(1).WillOnce(Return(true));
+
     auto flow = make_flow();
     flow->start();
     flow->register_listener(listener_);
@@ -825,7 +831,6 @@ TEST_F(FileTransferFlowTest, ReceiveFile_NotEnoughLiftProxiesAvailable)
     const size_t      file_size =
         transfer_handle_data->parts[0].part_size + transfer_handle_data->parts[1].part_size;
     const std::vector<IPv4Address> lift_proxies {conversion::to_ipv4_address("1.1.1.1")};
-    const FileStorage::Handle      file_handle = 666;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -833,9 +838,6 @@ TEST_F(FileTransferFlowTest, ReceiveFile_NotEnoughLiftProxiesAvailable)
     ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
         .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
-    ON_CALL(*file_storage_, open_file_for_writing(transfer_handle_data->search_handle.file_hash,
-                                file_name, file_size, true))
-        .WillByDefault(Return(file_handle));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
         .Times(1)
@@ -866,15 +868,15 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesFetch)
     const std::vector<IPv4Address> lift_proxies {
         conversion::to_ipv4_address("1.1.1.1"), conversion::to_ipv4_address("1.1.1.2")};
     const FileStorage::Handle file_handle = 666;
+    const std::string &       file_hash   = transfer_handle_data->search_handle.file_hash;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
         .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
-    ON_CALL(*file_storage_, open_file_for_writing(transfer_handle_data->search_handle.file_hash,
-                                file_name, file_size, true))
+    ON_CALL(*file_storage_, open_file_for_writing(file_hash, file_name, file_size, true))
         .WillByDefault(Return(file_handle));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
@@ -910,6 +912,8 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesFetch)
         on_transfer_error(ResultOf([](auto &&th) { return th.data(); }, transfer_handle_data), _))
         .Times(1);
 
+    EXPECT_CALL(*file_storage_, delete_file(file_hash)).Times(1).WillOnce(Return(true));
+
     auto flow = make_flow();
     flow->start();
     flow->register_listener(listener_);
@@ -934,6 +938,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
     const uint8_t xor_encryption_key = 0x69;
     const int     chunks_count = int(file_size / max_chunk_size_ + (file_size % max_chunk_size_));
     const FileStorage::Handle file_handle = 666;
+    const std::string &       file_hash   = transfer_handle_data->search_handle.file_hash;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -941,7 +946,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
     std::vector<uint8_t> file_content(file_size), received_file_content(file_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
-    ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
+    ON_CALL(*file_hash_interpreter_, decode(file_hash, _))
         .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
     ON_CALL(*aes_, decrypt(AESCipher::CBC, _, _, _, _))
@@ -952,8 +957,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
             promise.set_value(xor_encrypt(cipher_text, xor_encryption_key));
             return promise.get_future();
         });
-    ON_CALL(*file_storage_, open_file_for_writing(transfer_handle_data->search_handle.file_hash,
-                                file_name, file_size, true))
+    ON_CALL(*file_storage_, open_file_for_writing(file_hash, file_name, file_size, true))
         .WillByDefault(Return(file_handle));
     ON_CALL(*file_storage_, write_file(file_handle, _, _, _))
         .WillByDefault([&](FileStorage::Handle, size_t offset, size_t amount, const uint8_t *in) {
@@ -1004,6 +1008,8 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
     EXPECT_CALL(*listener_,
         on_transfer_completed(ResultOf([](auto &&th) { return th.data(); }, transfer_handle_data)))
         .Times(1);
+
+    EXPECT_CALL(*file_storage_, close_file(file_handle)).Times(1).WillOnce(Return(true));
 
     auto flow = make_flow();
     flow->start();

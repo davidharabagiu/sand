@@ -531,12 +531,6 @@ bool FileTransferFlowImpl::receive_file(
     }
 
     size_t file_size = file_hash_interpreter_->get_file_size(bin_file_hash);
-    auto file_handle = file_storage_->open_file_for_writing(file_hash, file_name, file_size, true);
-    if (file_handle == storage::FileStorage::invalid_handle)
-    {
-        LOG(ERROR) << "Cannot open file " << file_hash << " for writing";
-        return false;
-    }
 
     {
         std::lock_guard lock {mutex_};
@@ -549,7 +543,7 @@ bool FileTransferFlowImpl::receive_file(
         }
     }
 
-    add_job(io_executer_, [this, transfer_handle, file_size, file_handle](
+    add_job(io_executer_, [this, transfer_handle, file_size, file_name](
                               const auto &completion_token) {
         protocol::OfferId offer_id = transfer_handle.data()->offer_id;
         if (check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
@@ -625,6 +619,21 @@ bool FileTransferFlowImpl::receive_file(
             }
         }
 
+        std::ostringstream transfer_error;
+
+        auto file_handle = file_storage_->open_file_for_writing(
+            transfer_handle.data()->search_handle.file_hash, file_name, file_size, true);
+        if (file_handle == storage::FileStorage::invalid_handle)
+        {
+            inbound_transfer_cleanup(offer_id);
+            transfer_error << "Cannot open file " << transfer_handle.data()->search_handle.file_hash
+                           << " for writing";
+            listener_group_.notify(&FileTransferFlowListener::on_transfer_error, transfer_handle,
+                transfer_error.str());
+            LOG(ERROR) << transfer_error.str();
+            return;
+        }
+
         {
             std::lock_guard  lock {mutex_};
             InboundTransfer &tx_data  = inbound_transfers_.at(offer_id);
@@ -636,9 +645,8 @@ bool FileTransferFlowImpl::receive_file(
         }
 
         // Send Fetch messages
-        auto               lift_proxies_it = lift_proxies.cbegin();
-        auto               parts_it        = parts.cbegin();
-        std::ostringstream transfer_error;
+        auto lift_proxies_it = lift_proxies.cbegin();
+        auto parts_it        = parts.cbegin();
         for (; lift_proxies_it != lift_proxies.cend(); ++lift_proxies_it, ++parts_it)
         {
             auto msg        = std::make_unique<protocol::FetchMessage>();
@@ -1623,7 +1631,7 @@ void FileTransferFlowImpl::inbound_transfer_cleanup(protocol::OfferId offer_id)
     pending_transfer_cancellations_.erase(offer_id);
 
     auto it = inbound_transfers_.find(offer_id);
-    if (it != inbound_transfers_.end())
+    if (it != inbound_transfers_.end() && it->second.transfer_handle.is_valid())
     {
         file_storage_->delete_file(it->second.transfer_handle.data()->search_handle.file_hash);
     }
