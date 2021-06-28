@@ -1405,8 +1405,7 @@ void FileTransferFlowImpl::handle_init_download(
         };
 
         // Send all temporary stored data
-        auto read_handle = temporary_storage_->start_reading(storage_handle);
-        if (!read_handle)
+        if (!temporary_storage_->start_reading(storage_handle))
         {
             LOG(ERROR) << "Cannot read from temporary storage";
             cleanup_fun();
@@ -1419,7 +1418,7 @@ void FileTransferFlowImpl::handle_init_download(
             size_t               chunk_size;
             std::vector<uint8_t> chunk_data(max_chunk_size_);
             if (!temporary_storage_->read_next_chunk(
-                    read_handle, max_chunk_size_, chunk_offset, chunk_size, chunk_data.data()))
+                    storage_handle, max_chunk_size_, chunk_offset, chunk_size, chunk_data.data()))
             {
                 break;
             }

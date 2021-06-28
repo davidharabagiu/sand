@@ -1039,17 +1039,17 @@ TEST_F(FileTransferFlowTest, DropPoint_InitUpload_InitDownload_Upload)
     const IPv4Address sender_addr {conversion::to_ipv4_address("69.69.69.69")};
     const IPv4Address lift_proxy_addr {conversion::to_ipv4_address("69.69.69.70")};
     const TemporaryDataStorage::Handle temp_storage_handle = 666;
-    const auto read_handle = reinterpret_cast<TemporaryDataStorage::ReadHandle *>(420);
 
     std::vector<uint8_t> file_content(part_size), received_file_content(part_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
     ON_CALL(*temporary_data_storage_, create(part_size)).WillByDefault(Return(temp_storage_handle));
     ON_CALL(*temporary_data_storage_, start_reading(temp_storage_handle))
-        .WillByDefault(Return(read_handle));
-    ON_CALL(*temporary_data_storage_, read_next_chunk(read_handle, _, _, _, _))
+        .WillByDefault(Return(true));
+    ON_CALL(*temporary_data_storage_, read_next_chunk(temp_storage_handle, _, _, _, _))
         .WillByDefault(Return(false));
-    ON_CALL(*temporary_data_storage_, cancel_reading(read_handle)).WillByDefault(Return(true));
+    ON_CALL(*temporary_data_storage_, cancel_reading(temp_storage_handle))
+        .WillByDefault(Return(true));
 
     auto flow = make_flow();
     flow->start();
@@ -1141,15 +1141,15 @@ TEST_F(FileTransferFlowTest, DropPoint_InitUpload_Upload_InitDownload)
     const IPv4Address sender_addr {conversion::to_ipv4_address("69.69.69.69")};
     const IPv4Address lift_proxy_addr {conversion::to_ipv4_address("69.69.69.70")};
     const TemporaryDataStorage::Handle temp_storage_handle = 666;
-    const auto read_handle = reinterpret_cast<TemporaryDataStorage::ReadHandle *>(420);
 
     std::vector<uint8_t> file_content(part_size), received_file_content(part_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
     ON_CALL(*temporary_data_storage_, create(part_size)).WillByDefault(Return(temp_storage_handle));
     ON_CALL(*temporary_data_storage_, start_reading(temp_storage_handle))
-        .WillByDefault(Return(read_handle));
-    ON_CALL(*temporary_data_storage_, cancel_reading(read_handle)).WillByDefault(Return(true));
+        .WillByDefault(Return(true));
+    ON_CALL(*temporary_data_storage_, cancel_reading(temp_storage_handle))
+        .WillByDefault(Return(true));
 
     auto flow = make_flow();
     flow->start();
@@ -1224,10 +1224,11 @@ TEST_F(FileTransferFlowTest, DropPoint_InitUpload_Upload_InitDownload)
     thread_pool_->process_all_jobs();
 
     int current_read_chunk_idx = 0;
-    EXPECT_CALL(*temporary_data_storage_, read_next_chunk(read_handle, max_chunk_size_, _, _, _))
+    EXPECT_CALL(
+        *temporary_data_storage_, read_next_chunk(temp_storage_handle, max_chunk_size_, _, _, _))
         .Times(number_of_chunks + 1)
-        .WillRepeatedly([&](TemporaryDataStorage::ReadHandle *, size_t /*max_amount*/,
-                            size_t &offset, size_t &amount, uint8_t *data) {
+        .WillRepeatedly([&](TemporaryDataStorage::Handle, size_t /*max_amount*/, size_t &offset,
+                            size_t &amount, uint8_t *data) {
             if (current_read_chunk_idx == number_of_chunks)
             {
                 return false;
@@ -1264,21 +1265,22 @@ TEST_F(FileTransferFlowTest, DropPoint_Mixed)
     const IPv4Address sender_addr {conversion::to_ipv4_address("69.69.69.69")};
     const IPv4Address lift_proxy_addr {conversion::to_ipv4_address("69.69.69.70")};
     const TemporaryDataStorage::Handle temp_storage_handle = 666;
-    const auto read_handle = reinterpret_cast<TemporaryDataStorage::ReadHandle *>(420);
 
     std::vector<uint8_t> file_content(part_size), received_file_content(part_size);
     std::generate(file_content.begin(), file_content.end(), [&] { return rng_.next<uint8_t>(); });
 
     ON_CALL(*temporary_data_storage_, create(part_size)).WillByDefault(Return(temp_storage_handle));
     ON_CALL(*temporary_data_storage_, start_reading(temp_storage_handle))
-        .WillByDefault(Return(read_handle));
-    ON_CALL(*temporary_data_storage_, cancel_reading(read_handle)).WillByDefault(Return(true));
+        .WillByDefault(Return(true));
+    ON_CALL(*temporary_data_storage_, cancel_reading(temp_storage_handle))
+        .WillByDefault(Return(true));
 
     int current_read_chunk_idx = 0;
-    EXPECT_CALL(*temporary_data_storage_, read_next_chunk(read_handle, max_chunk_size_, _, _, _))
+    EXPECT_CALL(
+        *temporary_data_storage_, read_next_chunk(temp_storage_handle, max_chunk_size_, _, _, _))
         .Times(2)
-        .WillRepeatedly([&](TemporaryDataStorage::ReadHandle *, size_t /*max_amount*/,
-                            size_t &offset, size_t &amount, uint8_t *data) {
+        .WillRepeatedly([&](TemporaryDataStorage::Handle, size_t /*max_amount*/, size_t &offset,
+                            size_t &amount, uint8_t *data) {
             if (current_read_chunk_idx == 1)
             {
                 return false;
