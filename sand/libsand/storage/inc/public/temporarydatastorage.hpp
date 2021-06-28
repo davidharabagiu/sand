@@ -12,6 +12,8 @@ public:
     using Handle                           = int;
     static constexpr Handle invalid_handle = -1;
 
+    virtual ~TemporaryDataStorage() = default;
+
     [[nodiscard]] virtual Handle create(size_t size)          = 0;
     [[nodiscard]] virtual bool   start_reading(Handle handle) = 0;
     [[nodiscard]] virtual bool   read_next_chunk(

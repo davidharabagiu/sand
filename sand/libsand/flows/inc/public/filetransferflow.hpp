@@ -24,15 +24,16 @@ public:
 
     virtual ~FileTransferFlow() = default;
 
-    virtual bool  register_listener(std::shared_ptr<FileTransferFlowListener> listener)        = 0;
-    virtual bool  unregister_listener(std::shared_ptr<FileTransferFlowListener> listener)      = 0;
-    virtual State state() const                                                                = 0;
-    virtual void  start()                                                                      = 0;
-    virtual void  stop()                                                                       = 0;
-    virtual std::future<TransferHandle> create_offer(const SearchHandle &search_handle)        = 0;
-    virtual bool                        send_file(const TransferHandle &transfer_handle)       = 0;
-    virtual bool                        receive_file(const TransferHandle &transfer_handle)    = 0;
-    virtual bool                        cancel_transfer(const TransferHandle &transfer_handle) = 0;
+    virtual bool  register_listener(std::shared_ptr<FileTransferFlowListener> listener)   = 0;
+    virtual bool  unregister_listener(std::shared_ptr<FileTransferFlowListener> listener) = 0;
+    virtual State state() const                                                           = 0;
+    virtual void  start()                                                                 = 0;
+    virtual void  stop()                                                                  = 0;
+    virtual std::future<TransferHandle> create_offer(const SearchHandle &search_handle)   = 0;
+    virtual bool                        send_file(const TransferHandle &transfer_handle)  = 0;
+    virtual bool                        receive_file(
+                               const TransferHandle &transfer_handle, const std::string &file_name) = 0;
+    virtual bool cancel_transfer(const TransferHandle &transfer_handle) = 0;
 };
 }  // namespace sand::flows
 

@@ -479,7 +479,8 @@ TEST_F(FileTransferFlowTest, SendFile)
     const size_t   file_size =
         transfer_handle_data->parts[0].part_size + transfer_handle_data->parts[1].part_size;
     const int     chunks_count = int(file_size / max_chunk_size_ + (file_size % max_chunk_size_));
-    const uint8_t xor_encryption_key = 0x69;
+    const uint8_t xor_encryption_key      = 0x69;
+    const FileStorage::Handle file_handle = 666;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -490,13 +491,14 @@ TEST_F(FileTransferFlowTest, SendFile)
     ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
         .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
-    ON_CALL(*file_storage_, read_file(transfer_handle_data->search_handle.file_hash, _, _, _))
-        .WillByDefault([&](const std::string &, size_t offset, size_t amount, uint8_t *out) {
+    ON_CALL(*file_storage_, open_file_for_reading(transfer_handle_data->search_handle.file_hash))
+        .WillByDefault(Return(file_handle));
+    ON_CALL(*file_storage_, read_file(file_handle, _, _, _))
+        .WillByDefault([&](FileStorage::Handle, size_t offset, size_t amount, uint8_t *out) {
             std::copy_n(&file_content[offset], amount, out);
             return true;
         });
-    ON_CALL(*file_storage_, close_file(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(true));
+    ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
     ON_CALL(*aes_, encrypt(AESCipher::CBC, _, _, _, _))
         .WillByDefault([&](AESCipher::ModeOfOperation, const AESCipher::ByteVector &,
                            const AESCipher::ByteVector &, const AESCipher::ByteVector &plain_text,
@@ -614,7 +616,8 @@ TEST_F(FileTransferFlowTest, SendFile_PeerDeniesUpload)
     auto           transfer_handle_data = transfer_handle.data();
     const size_t   file_size =
         transfer_handle_data->parts[0].part_size + transfer_handle_data->parts[1].part_size;
-    const uint8_t xor_encryption_key = 0x69;
+    const uint8_t             xor_encryption_key = 0x69;
+    const FileStorage::Handle file_handle        = 666;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -625,13 +628,14 @@ TEST_F(FileTransferFlowTest, SendFile_PeerDeniesUpload)
     ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
         .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
-    ON_CALL(*file_storage_, read_file(transfer_handle_data->search_handle.file_hash, _, _, _))
-        .WillByDefault([&](const std::string &, size_t offset, size_t amount, uint8_t *out) {
+    ON_CALL(*file_storage_, open_file_for_reading(transfer_handle_data->search_handle.file_hash))
+        .WillByDefault(Return(file_handle));
+    ON_CALL(*file_storage_, read_file(file_handle, _, _, _))
+        .WillByDefault([&](FileStorage::Handle, size_t offset, size_t amount, uint8_t *out) {
             std::copy_n(&file_content[offset], amount, out);
             return true;
         });
-    ON_CALL(*file_storage_, close_file(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(true));
+    ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
     ON_CALL(*aes_, encrypt(AESCipher::CBC, _, _, _, _))
         .WillByDefault([&](AESCipher::ModeOfOperation, const AESCipher::ByteVector &,
                            const AESCipher::ByteVector &, const AESCipher::ByteVector &plain_text,
@@ -678,14 +682,16 @@ TEST_F(FileTransferFlowTest, SendFile_PeerDeniesUpload)
 
 TEST_F(FileTransferFlowTest, ReceiveFile)
 {
-    TransferHandle transfer_handle      = create_transfer_handle();
-    auto           transfer_handle_data = transfer_handle.data();
-    const size_t   file_size =
+    TransferHandle    transfer_handle      = create_transfer_handle();
+    const std::string file_name            = "manea.mp3";
+    auto              transfer_handle_data = transfer_handle.data();
+    const size_t      file_size =
         transfer_handle_data->parts[0].part_size + transfer_handle_data->parts[1].part_size;
     const std::vector<IPv4Address> lift_proxies {
         conversion::to_ipv4_address("1.1.1.1"), conversion::to_ipv4_address("1.1.1.2")};
     const uint8_t xor_encryption_key = 0x69;
     const int     chunks_count = int(file_size / max_chunk_size_ + (file_size % max_chunk_size_));
+    const FileStorage::Handle file_handle = 666;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -704,16 +710,17 @@ TEST_F(FileTransferFlowTest, ReceiveFile)
             promise.set_value(xor_encrypt(cipher_text, xor_encryption_key));
             return promise.get_future();
         });
-    ON_CALL(*file_storage_, write_file(transfer_handle_data->search_handle.file_hash, _, _, _))
-        .WillByDefault([&](const std::string & /*file_hash*/, size_t offset, size_t amount,
-                           const uint8_t *in) {
+    ON_CALL(*file_storage_, open_file_for_writing(transfer_handle_data->search_handle.file_hash,
+                                file_name, file_size, true))
+        .WillByDefault(Return(file_handle));
+    ON_CALL(*file_storage_, write_file(file_handle, _, _, _))
+        .WillByDefault([&](FileStorage::Handle, size_t offset, size_t amount, const uint8_t *in) {
             auto it = received_file_content.begin();
             std::advance(it, offset);
             std::copy_n(in, amount, it);
             return true;
         });
-    ON_CALL(*file_storage_, close_file(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(true));
+    ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
         .Times(1)
@@ -753,7 +760,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile)
     flow->start();
     flow->register_listener(listener_);
 
-    EXPECT_TRUE(flow->receive_file(transfer_handle));
+    EXPECT_TRUE(flow->receive_file(transfer_handle, file_name));
     thread_pool_->process_all_jobs();
 
     for (size_t i = 0; i != lift_proxies.size(); ++i)
@@ -799,7 +806,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_FlowNotStarted)
 {
     TransferHandle transfer_handle = create_transfer_handle();
     auto           flow            = make_flow();
-    EXPECT_FALSE(flow->receive_file(transfer_handle));
+    EXPECT_FALSE(flow->receive_file(transfer_handle, "manea.mp3"));
 }
 
 TEST_F(FileTransferFlowTest, ReceiveFile_InvalidTransferHandle)
@@ -807,16 +814,18 @@ TEST_F(FileTransferFlowTest, ReceiveFile_InvalidTransferHandle)
     TransferHandle transfer_handle;
     auto           flow = make_flow();
     flow->start();
-    EXPECT_FALSE(flow->receive_file(transfer_handle));
+    EXPECT_FALSE(flow->receive_file(transfer_handle, "manea.mp3"));
 }
 
 TEST_F(FileTransferFlowTest, ReceiveFile_NotEnoughLiftProxiesAvailable)
 {
-    TransferHandle transfer_handle      = create_transfer_handle();
-    auto           transfer_handle_data = transfer_handle.data();
-    const size_t   file_size =
+    TransferHandle    transfer_handle      = create_transfer_handle();
+    const std::string file_name            = "manea.mp3";
+    auto              transfer_handle_data = transfer_handle.data();
+    const size_t      file_size =
         transfer_handle_data->parts[0].part_size + transfer_handle_data->parts[1].part_size;
     const std::vector<IPv4Address> lift_proxies {conversion::to_ipv4_address("1.1.1.1")};
+    const FileStorage::Handle      file_handle = 666;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -824,6 +833,9 @@ TEST_F(FileTransferFlowTest, ReceiveFile_NotEnoughLiftProxiesAvailable)
     ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
         .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
+    ON_CALL(*file_storage_, open_file_for_writing(transfer_handle_data->search_handle.file_hash,
+                                file_name, file_size, true))
+        .WillByDefault(Return(file_handle));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
         .Times(1)
@@ -840,18 +852,20 @@ TEST_F(FileTransferFlowTest, ReceiveFile_NotEnoughLiftProxiesAvailable)
     flow->start();
     flow->register_listener(listener_);
 
-    EXPECT_TRUE(flow->receive_file(transfer_handle));
+    EXPECT_TRUE(flow->receive_file(transfer_handle, file_name));
     thread_pool_->process_all_jobs();
 }
 
 TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesFetch)
 {
-    TransferHandle transfer_handle      = create_transfer_handle();
-    auto           transfer_handle_data = transfer_handle.data();
-    const size_t   file_size =
+    TransferHandle    transfer_handle      = create_transfer_handle();
+    const std::string file_name            = "manea.mp3";
+    auto              transfer_handle_data = transfer_handle.data();
+    const size_t      file_size =
         transfer_handle_data->parts[0].part_size + transfer_handle_data->parts[1].part_size;
     const std::vector<IPv4Address> lift_proxies {
         conversion::to_ipv4_address("1.1.1.1"), conversion::to_ipv4_address("1.1.1.2")};
+    const FileStorage::Handle file_handle = 666;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -859,6 +873,9 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesFetch)
     ON_CALL(*file_hash_interpreter_, decode(transfer_handle_data->search_handle.file_hash, _))
         .WillByDefault(DoAll(SetArgReferee<1>(bin_file_hash), Return(true)));
     ON_CALL(*file_hash_interpreter_, get_file_size(bin_file_hash)).WillByDefault(Return(file_size));
+    ON_CALL(*file_storage_, open_file_for_writing(transfer_handle_data->search_handle.file_hash,
+                                file_name, file_size, true))
+        .WillByDefault(Return(file_handle));
 
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
         .Times(1)
@@ -897,15 +914,16 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesFetch)
     flow->start();
     flow->register_listener(listener_);
 
-    EXPECT_TRUE(flow->receive_file(transfer_handle));
+    EXPECT_TRUE(flow->receive_file(transfer_handle, file_name));
     thread_pool_->process_all_jobs();
 }
 
 TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
 {
-    TransferHandle transfer_handle      = create_transfer_handle();
-    auto           transfer_handle_data = transfer_handle.data();
-    const size_t   file_size =
+    TransferHandle    transfer_handle      = create_transfer_handle();
+    const std::string file_name            = "manea.mp3";
+    auto              transfer_handle_data = transfer_handle.data();
+    const size_t      file_size =
         transfer_handle_data->parts[0].part_size + transfer_handle_data->parts[1].part_size;
     const std::vector<IPv4Address> initial_lift_proxies {
         conversion::to_ipv4_address("1.1.1.1"), conversion::to_ipv4_address("1.1.1.2")};
@@ -915,6 +933,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
         conversion::to_ipv4_address("1.1.1.1"), conversion::to_ipv4_address("1.1.1.3")};
     const uint8_t xor_encryption_key = 0x69;
     const int     chunks_count = int(file_size / max_chunk_size_ + (file_size % max_chunk_size_));
+    const FileStorage::Handle file_handle = 666;
 
     AHash bin_file_hash;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
@@ -933,17 +952,17 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
             promise.set_value(xor_encrypt(cipher_text, xor_encryption_key));
             return promise.get_future();
         });
-    ON_CALL(*file_storage_, write_file(transfer_handle_data->search_handle.file_hash, _, _, _))
-        .WillByDefault([&](const std::string & /*file_hash*/, size_t offset, size_t amount,
-                           const uint8_t *in) {
+    ON_CALL(*file_storage_, open_file_for_writing(transfer_handle_data->search_handle.file_hash,
+                                file_name, file_size, true))
+        .WillByDefault(Return(file_handle));
+    ON_CALL(*file_storage_, write_file(file_handle, _, _, _))
+        .WillByDefault([&](FileStorage::Handle, size_t offset, size_t amount, const uint8_t *in) {
             auto it = received_file_content.begin();
             std::advance(it, offset);
             std::copy_n(in, amount, it);
             return true;
         });
-    ON_CALL(*file_storage_, close_file(transfer_handle_data->search_handle.file_hash))
-        .WillByDefault(Return(true));
-
+    ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
         .Times(1)
         .WillOnce(make_get_peers_action(initial_lift_proxies));
@@ -990,7 +1009,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
     flow->start();
     flow->register_listener(listener_);
 
-    EXPECT_TRUE(flow->receive_file(transfer_handle));
+    EXPECT_TRUE(flow->receive_file(transfer_handle, file_name));
     thread_pool_->process_all_jobs();
 
     for (size_t i = 0; i != lift_proxies.size(); ++i)

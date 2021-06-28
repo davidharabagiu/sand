@@ -11,6 +11,7 @@
 #include "address.hpp"
 #include "completiontoken.hpp"
 #include "executer.hpp"
+#include "filestorage.hpp"
 #include "filetransferflow.hpp"
 #include "filetransferflowlistener.hpp"
 #include "listenergroup.hpp"
@@ -34,7 +35,6 @@ class ProtocolMessageHandler;
 
 namespace sand::storage
 {
-class FileStorage;
 class FileHashInterpreter;
 }  // namespace sand::storage
 
@@ -71,8 +71,8 @@ public:
     void  stop() override;
     std::future<TransferHandle> create_offer(const SearchHandle &search_handle) override;
     bool                        send_file(const TransferHandle &transfer_handle) override;
-    bool                        receive_file(const TransferHandle &transfer_handle) override;
-    bool                        cancel_transfer(const TransferHandle &transfer_handle) override;
+    bool receive_file(const TransferHandle &transfer_handle, const std::string &file_name) override;
+    bool cancel_transfer(const TransferHandle &transfer_handle) override;
 
 private:
     void handle_request_drop_point(
@@ -155,6 +155,7 @@ private:
         protocol::FileSize                       file_size;
         protocol::FileSize                       bytes_transferred;
         TransferHandle                           transfer_handle {};
+        storage::FileStorage::Handle             file_handle;
         std::shared_ptr<utils::Timer>            timeout;
     };
 

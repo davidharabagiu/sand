@@ -348,6 +348,18 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
             }
         }
 
+        auto file_handle = file_storage_->open_file_for_reading(file_hash);
+        if (file_handle == storage::FileStorage::invalid_handle)
+        {
+            outbound_transfer_cleanup(offer_id);
+            std::ostringstream transfer_error;
+            transfer_error << "Cannot open file " << file_hash << " for reading";
+            listener_group_.notify(&FileTransferFlowListener::on_transfer_error, transfer_handle,
+                transfer_error.str());
+            LOG(ERROR) << transfer_error.str();
+            return;
+        }
+
         // Send file parts
         std::vector<std::promise<bool>> part_upload_promises;
         part_upload_promises.reserve(transfer_handle.data()->parts.size());
@@ -368,8 +380,8 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
             auto &promise = part_upload_promises.emplace_back();
 
             add_job(io_executer_, [this, &promise, &file_hash, offer_id, &transfer_handle,
-                                      &part_data, &total_bytes_transferred, &file_size, &key,
-                                      &iv](const auto &completion_token) {
+                                      &part_data, &total_bytes_transferred, &file_size, &key, &iv,
+                                      file_handle](const auto &completion_token) {
                 if (check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
                 {
                     return;
@@ -386,7 +398,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                     size_t chunk_size =
                         std::min(max_chunk_size_, part_data.part_size - bytes_transferred);
 
-                    bool read_ok = file_storage_->read_file(file_hash,
+                    bool read_ok = file_storage_->read_file(file_handle,
                         part_data.part_offset + bytes_transferred, chunk_size, plain_text.data());
                     if (completion_token.is_cancelled() ||
                         check_if_outbound_transfer_cancelled_and_cleanup(offer_id))
@@ -395,6 +407,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                     }
 
                     std::ostringstream transfer_error;
+
                     if (!read_ok)
                     {
                         outbound_transfer_cleanup(offer_id);
@@ -482,20 +495,21 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
             if (completion_token.is_cancelled() ||
                 check_if_outbound_transfer_cancelled_and_cleanup(offer_id) || !success)
             {
-                file_storage_->close_file(file_hash);
+                file_storage_->close_file(file_handle);
                 return;
             }
         }
 
         outbound_transfer_cleanup(offer_id);
         listener_group_.notify(&FileTransferFlowListener::on_transfer_completed, transfer_handle);
-        file_storage_->close_file(file_hash);
+        file_storage_->close_file(file_handle);
     });
 
     return true;
 }
 
-bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
+bool FileTransferFlowImpl::receive_file(
+    const TransferHandle &transfer_handle, const std::string &file_name)
 {
     if (state() != State::RUNNING)
     {
@@ -517,6 +531,12 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
     }
 
     size_t file_size = file_hash_interpreter_->get_file_size(bin_file_hash);
+    auto file_handle = file_storage_->open_file_for_writing(file_hash, file_name, file_size, true);
+    if (file_handle == storage::FileStorage::invalid_handle)
+    {
+        LOG(ERROR) << "Cannot open file " << file_hash << " for writing";
+        return false;
+    }
 
     {
         std::lock_guard lock {mutex_};
@@ -529,7 +549,8 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
         }
     }
 
-    add_job(io_executer_, [this, transfer_handle, file_size](const auto &completion_token) {
+    add_job(io_executer_, [this, transfer_handle, file_size, file_handle](
+                              const auto &completion_token) {
         protocol::OfferId offer_id = transfer_handle.data()->offer_id;
         if (check_if_inbound_transfer_cancelled_and_cleanup(offer_id))
         {
@@ -611,6 +632,7 @@ bool FileTransferFlowImpl::receive_file(const TransferHandle &transfer_handle)
             tx_data.bytes_transferred = 0;
             tx_data.transfer_handle   = transfer_handle;
             tx_data.parts_by_source   = std::move(parts_by_source);
+            tx_data.file_handle       = file_handle;
         }
 
         // Send Fetch messages
@@ -1193,7 +1215,7 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
     }
 
     // Write to file
-    if (!file_storage_->write_file(file_hash, chunk_pos, chunk_size, plain_text.data()))
+    if (!file_storage_->write_file(transfer.file_handle, chunk_pos, chunk_size, plain_text.data()))
     {
         LOG(ERROR) << "Cannot write to file " << file_hash;
         cleanup     = true;
@@ -1233,7 +1255,7 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
         }
         else
         {
-            file_storage_->close_file(file_hash);
+            file_storage_->close_file(transfer.file_handle);
         }
 
         std::lock_guard lock {mutex_};
@@ -1597,8 +1619,15 @@ void FileTransferFlowImpl::outbound_transfer_cleanup(protocol::OfferId offer_id)
 void FileTransferFlowImpl::inbound_transfer_cleanup(protocol::OfferId offer_id)
 {
     std::lock_guard lock {mutex_};
+
     pending_transfer_cancellations_.erase(offer_id);
-    inbound_transfers_.erase(offer_id);
+
+    auto it = inbound_transfers_.find(offer_id);
+    if (it != inbound_transfers_.end())
+    {
+        file_storage_->delete_file(it->second.transfer_handle.data()->search_handle.file_hash);
+    }
+    inbound_transfers_.erase(it);
 }
 
 void FileTransferFlowImpl::drop_point_transfer_cleanup(protocol::OfferId offer_id)
