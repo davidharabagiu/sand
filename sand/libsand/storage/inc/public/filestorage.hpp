@@ -19,8 +19,8 @@ public:
     [[nodiscard]] virtual Handle open_file_for_writing(const std::string &file_hash,
         const std::string &file_name, size_t file_size, bool truncate)               = 0;
 
-    virtual bool read_file(Handle handle, size_t offset, size_t amount, uint8_t *out)       = 0;
-    virtual bool write_file(Handle handle, size_t offset, size_t amount, const uint8_t *in) = 0;
+    virtual size_t read_file(Handle handle, size_t offset, size_t amount, uint8_t *out)       = 0;
+    virtual size_t write_file(Handle handle, size_t offset, size_t amount, const uint8_t *in) = 0;
 
     virtual bool close_file(Handle handle)                 = 0;
     virtual bool delete_file(const std::string &file_hash) = 0;

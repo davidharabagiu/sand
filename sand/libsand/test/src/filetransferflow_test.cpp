@@ -496,7 +496,7 @@ TEST_F(FileTransferFlowTest, SendFile)
     ON_CALL(*file_storage_, read_file(file_handle, _, _, _))
         .WillByDefault([&](FileStorage::Handle, size_t offset, size_t amount, uint8_t *out) {
             std::copy_n(&file_content[offset], amount, out);
-            return true;
+            return amount;
         });
     ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
     ON_CALL(*aes_, encrypt(AESCipher::CBC, _, _, _, _))
@@ -635,7 +635,7 @@ TEST_F(FileTransferFlowTest, SendFile_PeerDeniesUpload)
     ON_CALL(*file_storage_, read_file(file_handle, _, _, _))
         .WillByDefault([&](FileStorage::Handle, size_t offset, size_t amount, uint8_t *out) {
             std::copy_n(&file_content[offset], amount, out);
-            return true;
+            return amount;
         });
     ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
     ON_CALL(*aes_, encrypt(AESCipher::CBC, _, _, _, _))
@@ -722,7 +722,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile)
             auto it = received_file_content.begin();
             std::advance(it, offset);
             std::copy_n(in, amount, it);
-            return true;
+            return amount;
         });
     ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
 
@@ -964,7 +964,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
             auto it = received_file_content.begin();
             std::advance(it, offset);
             std::copy_n(in, amount, it);
-            return true;
+            return amount;
         });
     ON_CALL(*file_storage_, close_file(file_handle)).WillByDefault(Return(true));
     EXPECT_CALL(*peer_address_provider_, get_peers(2, _))
