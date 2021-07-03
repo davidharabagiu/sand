@@ -78,9 +78,20 @@ bool OpenFile::map_file()
 
 bool OpenFile::create_file(size_t size, bool truncate) const
 {
+    std::ios::openmode mode = std::ios::out | std::ios::binary;
+
+    bool file_exists = std::filesystem::exists(file_path_);
+    if (truncate)
     {
-        std::ofstream fs {file_path_,
-            std::ios::out | std::ios::binary | std::ios::openmode(truncate ? std::ios::trunc : 0)};
+        mode |= std::ios::trunc;
+    }
+    else if (file_exists)
+    {
+        mode |= std::ios::in;
+    }
+
+    {
+        std::fstream fs {file_path_, mode};
         if (!fs)
         {
             LOG(ERROR) << "Cannot open " << file_path_ << " for writing";

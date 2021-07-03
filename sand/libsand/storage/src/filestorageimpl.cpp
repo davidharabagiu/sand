@@ -1,5 +1,7 @@
 #include "filestorageimpl.hpp"
 
+#include <filesystem>
+
 #include <glog/logging.h>
 
 #include "filestoragemetadata.hpp"
@@ -96,13 +98,13 @@ size_t FileStorageImpl::write_file(Handle handle, size_t offset, size_t amount, 
 
 bool FileStorageImpl::close_file(Handle handle)
 {
-    std::lock_guard lock {mutex_};
-
     auto file = get_open_file(handle);
     if (!file)
     {
         return false;
     }
+
+    std::lock_guard lock {mutex_};
 
     open_files_.erase(handle);
 
@@ -124,7 +126,7 @@ bool FileStorageImpl::close_file(Handle handle)
 bool FileStorageImpl::delete_file(const std::string &file_hash)
 {
     std::string file_path = file_storage_metadata_->get_file_path(file_hash);
-    if (file_hash.empty())
+    if (file_path.empty())
     {
         return false;
     }
@@ -145,6 +147,8 @@ bool FileStorageImpl::delete_file(const std::string &file_hash)
     }
 
     file_storage_metadata_->remove(file_hash);
+    std::filesystem::remove(file_path);
+
     return true;
 }
 
