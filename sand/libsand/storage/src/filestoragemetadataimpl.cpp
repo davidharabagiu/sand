@@ -18,10 +18,10 @@ namespace sand::storage
 {
 FileStorageMetadataImpl::FileStorageMetadataImpl(
     std::unique_ptr<FileHashInterpreter> file_hash_interpreter,
-    std::shared_ptr<utils::Executer> hash_compute_executor, std::string metadata_file_path,
+    std::shared_ptr<utils::Executer> hash_compute_executer, std::string metadata_file_path,
     std::string storage_root_path)
     : file_hash_interpreter_ {std::move(file_hash_interpreter)}
-    , hash_compute_executor_ {std::move(hash_compute_executor)}
+    , hash_compute_executer_ {std::move(hash_compute_executer)}
     , metadata_file_path_ {std::move(metadata_file_path)}
     , storage_root_path_ {std::move(storage_root_path)}
 {
@@ -56,7 +56,8 @@ std::string FileStorageMetadataImpl::add(const std::string &file_hash, const std
 {
     std::lock_guard lock {mutex_};
 
-    if (contains_internal(file_hash) || file_name_set_.count(file_name) != 0)
+    if (file_hash.empty() || file_name.empty() || contains_internal(file_hash) ||
+        file_name_set_.count(file_name) != 0)
     {
         return "";
     }
@@ -145,7 +146,10 @@ void FileStorageMetadataImpl::write_metadata_file() const
     nlohmann::json json_root;
     for (const auto &[hash, name] : hash_to_name_map_)
     {
-        json_root.push_back({hash, name});
+        auto &e = json_root.emplace_back();
+
+        e[json_file_hash_entry_name] = hash;
+        e[json_file_name_entry_name] = name;
     }
 
     std::ofstream fs {metadata_file_path_};
@@ -164,7 +168,7 @@ void FileStorageMetadataImpl::add_missing_files()
             protocol::AHash &result_ref =
                 computed_hashes.emplace(e.path().filename(), protocol::AHash {}).first->second;
             hashing_job_results.emplace(e.path().filename(),
-                file_hash_interpreter_->create_hash(e.path(), result_ref, *hash_compute_executor_));
+                file_hash_interpreter_->create_hash(e.path(), result_ref, *hash_compute_executer_));
         }
     }
 

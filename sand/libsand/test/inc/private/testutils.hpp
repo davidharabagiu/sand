@@ -30,6 +30,14 @@ sand::network::IPv4Address random_ip_address(sand::utils::Random &rng);
 auto                       make_basic_reply_generator(bool ok)
     -> std::function<std::future<std::unique_ptr<sand::protocol::BasicReply>>(
         sand::network::IPv4Address, std::unique_ptr<sand::protocol::Message>)>;
+
+template<typename T>
+inline std::future<T> create_future(T &&val)
+{
+    std::promise<T> promise;
+    promise.set_value(std::forward<T>(val));
+    return promise.get_future();
+}
 }  // namespace testutils
 
 MATCHER_P(SmartPointerCompare, rhs, "Compares a smart pointer to a raw pointer")

@@ -24,7 +24,7 @@ class FileStorageMetadataImpl : public FileStorageMetadata
 {
 public:
     FileStorageMetadataImpl(std::unique_ptr<FileHashInterpreter> file_hash_interpreter,
-        std::shared_ptr<utils::Executer> hash_compute_executor, std::string metadata_file_path,
+        std::shared_ptr<utils::Executer> hash_compute_executer, std::string metadata_file_path,
         std::string storage_root_path);
     ~FileStorageMetadataImpl() override;
 
@@ -42,7 +42,7 @@ private:
     std::string add_internal(const std::string &file_hash, const std::string &file_name);
 
     const std::unique_ptr<FileHashInterpreter> file_hash_interpreter_;
-    const std::shared_ptr<utils::Executer>     hash_compute_executor_;
+    const std::shared_ptr<utils::Executer>     hash_compute_executer_;
     const std::string                          metadata_file_path_;
     const std::string                          storage_root_path_;
     std::map<std::string, std::string>         hash_to_name_map_;
