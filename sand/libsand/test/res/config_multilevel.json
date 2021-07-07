@@ -1,0 +1,14 @@
+{
+  "key0": "this is a string",
+  "section1": {
+    "key1": -1,
+    "key2": 1,
+    "section1_1": {
+      "key3": -0.1,
+      "key4": 0.1
+    }
+  },
+  "section2": {
+    "key5": true
+  }
+}
