@@ -4,7 +4,7 @@
 
 #include "dnlconfigloader.hpp"
 
-namespace sand::flows
+namespace sand::config
 {
 DNLConfig::DNLConfig(std::unique_ptr<DNLConfigLoader> loader)
     : loader_ {std::move(loader)}
@@ -13,8 +13,7 @@ DNLConfig::DNLConfig(std::unique_ptr<DNLConfigLoader> loader)
 }
 
 DNLConfig::~DNLConfig()
-{
-}
+{}
 
 void DNLConfig::reload()
 {
@@ -59,4 +58,4 @@ bool DNLConfig::contains(network::IPv4Address address) const
     std::lock_guard lock {mutex_};
     return std::find(pool_.cbegin(), pool_.cend(), address) != pool_.cend();
 }
-}  // namespace sand::flows
+}  // namespace sand::config

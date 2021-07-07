@@ -5,7 +5,7 @@
 
 #include "dnlconfigloader.hpp"
 
-using namespace ::sand::flows;
+using namespace ::sand::config;
 using namespace ::sand::network;
 
 class DNLConfigLoaderMock : public DNLConfigLoader

@@ -9,7 +9,7 @@
 #include "dnlconfigloader_mock.hpp"
 
 using namespace ::testing;
-using namespace ::sand::flows;
+using namespace ::sand::config;
 using namespace ::sand::network;
 
 namespace

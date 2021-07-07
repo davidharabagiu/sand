@@ -3,12 +3,11 @@
 #include <fstream>
 #include <utility>
 
-namespace sand::flows
+namespace sand::config
 {
 TextFileDNLConfigLoader::TextFileDNLConfigLoader(std::string file_name)
     : file_name_ {std::move(file_name)}
-{
-}
+{}
 
 std::vector<network::IPv4Address> TextFileDNLConfigLoader::load()
 {
@@ -23,4 +22,4 @@ std::vector<network::IPv4Address> TextFileDNLConfigLoader::load()
 
     return dnl_list;
 }
-}  // namespace sand::flows
+}  // namespace sand::config

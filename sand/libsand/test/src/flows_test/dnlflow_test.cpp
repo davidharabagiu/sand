@@ -22,6 +22,7 @@ using namespace ::sand::flows;
 using namespace ::sand::utils;
 using namespace ::sand::network;
 using namespace ::sand::protocol;
+using namespace ::sand::config;
 
 namespace
 {

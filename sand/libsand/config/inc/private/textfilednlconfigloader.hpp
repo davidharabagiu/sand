@@ -1,11 +1,11 @@
-#ifndef SAND_FLOWS_TEXTFILEDNLCONFIGLOADER_HPP_
-#define SAND_FLOWS_TEXTFILEDNLCONFIGLOADER_HPP_
+#ifndef SAND_CONFIG_TEXTFILEDNLCONFIGLOADER_HPP_
+#define SAND_CONFIG_TEXTFILEDNLCONFIGLOADER_HPP_
 
 #include <string>
 
 #include "dnlconfigloader.hpp"
 
-namespace sand::flows
+namespace sand::config
 {
 class TextFileDNLConfigLoader : public DNLConfigLoader
 {
@@ -16,6 +16,6 @@ public:
 private:
     std::string file_name_;
 };
-}  // namespace sand::flows
+}  // namespace sand::config
 
-#endif  // SAND_FLOWS_TEXTFILEDNLCONFIGLOADER_HPP_
+#endif  // SAND_CONFIG_TEXTFILEDNLCONFIGLOADER_HPP_

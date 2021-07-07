@@ -40,7 +40,7 @@ std::shared_ptr<std::future<T>> make_shared_future(std::future<T> &&future)
 PeerManagerFlowImpl::PeerManagerFlowImpl(
     std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
     std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher,
-    std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
+    std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
     std::shared_ptr<utils::Executer> io_executer, int initial_peer_count)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}

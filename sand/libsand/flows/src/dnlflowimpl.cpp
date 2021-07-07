@@ -29,7 +29,7 @@ const char *to_string(DNLFlow::State state)
 
 DNLFlowImpl::DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
     std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
-    std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
+    std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
     std::shared_ptr<utils::Executer> io_executer, int sync_period_ms)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}

@@ -22,18 +22,23 @@ namespace sand::protocol
 class ProtocolMessageHandler;
 }  // namespace sand::protocol
 
+namespace sand::config
+{
+// Forward declarations
+class DNLConfig;
+}  // namespace sand::config
+
 namespace sand::flows
 {
 // Forward declarations
 class InboundRequestDispatcher;
-class DNLConfig;
 
 class PeerManagerFlowImpl : public PeerManagerFlow
 {
 public:
     PeerManagerFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
         std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
-        std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
+        std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
         std::shared_ptr<utils::Executer> io_executer, int initial_peer_count);
     ~PeerManagerFlowImpl() override;
 
@@ -77,7 +82,7 @@ private:
 
     const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
     const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;
-    const std::shared_ptr<DNLConfig>                        dnl_config_;
+    const std::shared_ptr<config::DNLConfig>                dnl_config_;
     const std::shared_ptr<utils::Executer>                  executer_;
     const std::shared_ptr<utils::Executer>                  io_executer_;
     const int                                               initial_peer_count_;

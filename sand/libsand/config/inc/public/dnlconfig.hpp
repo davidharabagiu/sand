@@ -1,5 +1,5 @@
-#ifndef SAND_FLOWS_DNLCONFIG_HPP_
-#define SAND_FLOWS_DNLCONFIG_HPP_
+#ifndef SAND_CONFIG_DNLCONFIG_HPP_
+#define SAND_CONFIG_DNLCONFIG_HPP_
 
 #include <memory>
 #include <mutex>
@@ -8,7 +8,7 @@
 #include "address.hpp"
 #include "random.hpp"
 
-namespace sand::flows
+namespace sand::config
 {
 // Forward declarations
 class DNLConfigLoader;
@@ -32,6 +32,6 @@ private:
     utils::Random                     rng_;
     mutable std::mutex                mutex_;
 };
-}  // namespace sand::flows
+}  // namespace sand::config
 
-#endif  // SAND_FLOWS_DNLCONFIG_HPP_
+#endif  // SAND_CONFIG_DNLCONFIG_HPP_

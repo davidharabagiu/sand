@@ -3,7 +3,7 @@
 #include "textfilednlconfigloader.hpp"
 
 using namespace ::testing;
-using namespace ::sand::flows;
+using namespace ::sand::config;
 using namespace ::sand::network;
 
 namespace
@@ -12,8 +12,7 @@ class TextFileDNLConfigLoaderTest : public Test
 {
 protected:
     void SetUp() override
-    {
-    }
+    {}
 };
 }  // namespace
 

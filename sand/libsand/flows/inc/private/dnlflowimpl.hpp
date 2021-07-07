@@ -20,18 +20,22 @@ namespace sand::protocol
 class ProtocolMessageHandler;
 }  // namespace sand::protocol
 
+namespace sand::config
+{
+class DNLConfig;
+}  // namespace sand::config
+
 namespace sand::flows
 {
 // Forward declarations
 class InboundRequestDispatcher;
-class DNLConfig;
 
 class DNLFlowImpl : public DNLFlow
 {
 public:
     DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
         std::shared_ptr<InboundRequestDispatcher>                 inbound_request_dispatcher,
-        std::shared_ptr<DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
+        std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
         std::shared_ptr<utils::Executer> io_executer, int sync_period_ms);
     ~DNLFlowImpl() override;
 
@@ -73,7 +77,7 @@ private:
     std::vector<Event>                                      most_recent_events_;
     const std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler_;
     const std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher_;
-    const std::shared_ptr<DNLConfig>                        dnl_config_;
+    const std::shared_ptr<config::DNLConfig>                dnl_config_;
     const std::shared_ptr<utils::Executer>                  executer_;
     const std::shared_ptr<utils::Executer>                  io_executer_;
     utils::Timer                                            sync_timer_;
