@@ -16,4 +16,5 @@ find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME}
         ${GLOG_LIB}
         utils
-        protocol)
+        protocol
+        config)

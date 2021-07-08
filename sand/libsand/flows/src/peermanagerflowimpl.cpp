@@ -8,6 +8,7 @@
 
 #include <glog/logging.h>
 
+#include "config.hpp"
 #include "dnlconfig.hpp"
 #include "executer.hpp"
 #include "inboundrequestdispatcher.hpp"
@@ -41,13 +42,13 @@ PeerManagerFlowImpl::PeerManagerFlowImpl(
     std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
     std::shared_ptr<InboundRequestDispatcher>         inbound_request_dispatcher,
     std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
-    std::shared_ptr<utils::Executer> io_executer, int initial_peer_count)
+    std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
     , dnl_config_ {std::move(dnl_config)}
     , executer_ {std::move(executer)}
     , io_executer_ {std::move(io_executer)}
-    , initial_peer_count_ {initial_peer_count}
+    , initial_peer_count_ {int(cfg.get_integer(config::ConfigKey::INITIAL_PEER_COUNT))}
     , state_ {State::IDLE}
 {
     inbound_request_dispatcher_->set_callback<protocol::PullMessage>([this](auto &&p1, auto &&p2) {

@@ -4,6 +4,7 @@
 
 #include <glog/logging.h>
 
+#include "config.hpp"
 #include "defer.hpp"
 #include "messageserializer.hpp"
 #include "protocolmessagelistener.hpp"
@@ -51,14 +52,13 @@ constexpr void (ProtocolMessageListener::*InitDownloadMessageNotification)(netwo
 ProtocolMessageHandlerImpl::ProtocolMessageHandlerImpl(
     std::shared_ptr<network::TCPSender> tcp_sender, std::shared_ptr<network::TCPServer> tcp_server,
     std::shared_ptr<const MessageSerializer> message_serializer,
-    std::shared_ptr<utils::Executer> io_executer, unsigned short port)
+    std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg)
     : tcp_sender_ {std::move(tcp_sender)}
     , tcp_server_ {std::move(tcp_server)}
     , message_serializer_ {std::move(message_serializer)}
     , io_executer_ {std::move(io_executer)}
-    , port_ {port}
-{
-}
+    , port_ {static_cast<unsigned short>(cfg.get_integer(config::ConfigKey::PORT))}
+{}
 
 ProtocolMessageHandlerImpl::~ProtocolMessageHandlerImpl()
 {
@@ -185,8 +185,7 @@ ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::
         ProtocolMessageHandlerImpl &parent, network::IPv4Address message_source)
     : parent_ {parent}
     , message_source_ {message_source}
-{
-}
+{}
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const PullMessage &message)
@@ -313,8 +312,7 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deser
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::error()
-{
-}
+{}
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::process_reply(
     std::unique_ptr<BasicReply> reply)

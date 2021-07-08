@@ -12,10 +12,12 @@
 
 #include <nlohmann/json.hpp>
 
+#include "config.hpp"
 #include "filestoragemetadataimpl.hpp"
 #include "messages.hpp"
 #include "testutils.hpp"
 
+#include "configloader_mock.hpp"
 #include "executer_mock.hpp"
 #include "filehashinterpreter_mock.hpp"
 
@@ -23,6 +25,7 @@ using namespace ::testing;
 using namespace ::sand::storage;
 using namespace ::sand::utils;
 using namespace ::sand::protocol;
+using namespace ::sand::config;
 
 namespace
 {
@@ -103,8 +106,18 @@ protected:
         fs << j;
     }
 
+    Config create_config(const std::string &metadata_file, const std::string &storage_path)
+    {
+        ON_CALL(config_loader_, load())
+            .WillByDefault(Return(std::map<std::string, std::any> {
+                {ConfigKey(ConfigKey::METADATA_FILE_PATH).to_string(), metadata_file},
+                {ConfigKey(ConfigKey::FILE_STORAGE_PATH).to_string(), storage_path}}));
+        return Config {config_loader_};
+    }
+
     FileHashInterpreterMock *     file_hash_interpreter_;
     std::shared_ptr<ExecuterMock> executer_;
+    NiceMock<ConfigLoaderMock>    config_loader_;
 };
 }  // namespace
 
@@ -118,8 +131,8 @@ TEST_F(FileStorageMetadataTest, NewMetadataFile)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         for (const auto &[hash, name] : expected_storage_map)
         {
@@ -147,8 +160,8 @@ TEST_F(FileStorageMetadataTest, ExistingMetadataFile)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         for (const auto &[hash, name] : expected_storage_map)
         {
@@ -189,8 +202,8 @@ TEST_F(FileStorageMetadataTest, ExistingMetadataFile_SomeFilesMissing)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         for (const auto &[hash, name] : expected_storage_map)
         {
@@ -226,8 +239,8 @@ TEST_F(FileStorageMetadataTest, ExistingMetadataFile_SomeNewFiles)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         for (const auto &[hash, name] : expected_storage_map)
         {
@@ -257,8 +270,8 @@ TEST_F(FileStorageMetadataTest, AddFile)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         EXPECT_EQ(fs_meta.add(new_file_hash, new_file_name),
             std::filesystem::path {storage_path} / new_file_name);
@@ -291,8 +304,8 @@ TEST_F(FileStorageMetadataTest, AddFile_DuplicateHash)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         EXPECT_EQ(fs_meta.add(expected_storage_map.cbegin()->first, new_file_name), "");
     }
@@ -313,8 +326,8 @@ TEST_F(FileStorageMetadataTest, AddFile_DuplicateName)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         EXPECT_EQ(fs_meta.add(new_file_hash, expected_storage_map.cbegin()->second), "");
     }
@@ -334,8 +347,8 @@ TEST_F(FileStorageMetadataTest, RemoveFile)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         EXPECT_TRUE(fs_meta.remove(expected_storage_map.cbegin()->first));
         expected_storage_map.erase(expected_storage_map.cbegin());
@@ -366,8 +379,8 @@ TEST_F(FileStorageMetadataTest, RemoveFile_FileNotPresent)
 
     {
         FileStorageMetadataImpl fs_meta {
-            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_, metadata_file,
-            storage_path};
+            std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), executer_,
+            create_config(metadata_file, storage_path)};
 
         EXPECT_FALSE(fs_meta.remove("Otelu_galati"));
     }

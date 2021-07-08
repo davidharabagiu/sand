@@ -7,6 +7,7 @@
 #include <glog/logging.h>
 #include <nlohmann/json.hpp>
 
+#include "config.hpp"
 #include "defer.hpp"
 #include "executer.hpp"
 #include "filehashinterpreter.hpp"
@@ -18,12 +19,11 @@ namespace sand::storage
 {
 FileStorageMetadataImpl::FileStorageMetadataImpl(
     std::unique_ptr<FileHashInterpreter> file_hash_interpreter,
-    std::shared_ptr<utils::Executer> hash_compute_executer, std::string metadata_file_path,
-    std::string storage_root_path)
+    std::shared_ptr<utils::Executer> hash_compute_executer, const config::Config &cfg)
     : file_hash_interpreter_ {std::move(file_hash_interpreter)}
     , hash_compute_executer_ {std::move(hash_compute_executer)}
-    , metadata_file_path_ {std::move(metadata_file_path)}
-    , storage_root_path_ {std::move(storage_root_path)}
+    , metadata_file_path_ {cfg.get_string(config::ConfigKey::METADATA_FILE_PATH)}
+    , storage_root_path_ {cfg.get_string(config::ConfigKey::FILE_STORAGE_PATH)}
 {
     parse_metadata_file();
     add_missing_files();

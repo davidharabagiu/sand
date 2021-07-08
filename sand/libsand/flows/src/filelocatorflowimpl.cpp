@@ -4,6 +4,7 @@
 
 #include <glog/logging.h>
 
+#include "config.hpp"
 #include "filehashinterpreter.hpp"
 #include "filestorage.hpp"
 #include "inboundrequestdispatcher.hpp"
@@ -38,8 +39,7 @@ FileLocatorFlowImpl::FileLocatorFlowImpl(
     std::unique_ptr<storage::FileHashInterpreter>     file_hash_interpreter,
     std::shared_ptr<protocol::SecretDataInterpreter>  secret_data_interpreter,
     std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer,
-    std::string public_key, std::string private_key, int search_propagation_degree,
-    int search_timeout_sec, int routing_table_entry_expiration_time_sec)
+    std::string public_key, std::string private_key, const config::Config &cfg)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
     , peer_address_provider_ {std::move(peer_address_provider)}
@@ -50,9 +50,11 @@ FileLocatorFlowImpl::FileLocatorFlowImpl(
     , io_executer_ {std::move(io_executer)}
     , public_key_ {std::move(public_key)}
     , private_key_ {std::move(private_key)}
-    , search_propagation_degree_ {search_propagation_degree}
-    , search_timeout_sec_ {search_timeout_sec}
-    , routing_table_entry_expiration_time_sec_ {routing_table_entry_expiration_time_sec}
+    , search_propagation_degree_ {int(
+          cfg.get_integer(config::ConfigKey::SEARCH_PROPAGATION_DEGREE))}
+    , search_timeout_sec_ {int(cfg.get_integer(config::ConfigKey::SEARCH_TIMEOUT))}
+    , routing_table_entry_expiration_time_sec_ {int(
+          cfg.get_integer(config::ConfigKey::ROUTING_TABLE_ENTRY_TIMEOUT))}
     , state_ {State::IDLE}
 {
     inbound_request_dispatcher_->set_callback<protocol::SearchMessage>(

@@ -25,6 +25,7 @@ class ProtocolMessageHandler;
 namespace sand::config
 {
 // Forward declarations
+class Config;
 class DNLConfig;
 }  // namespace sand::config
 
@@ -39,7 +40,7 @@ public:
     PeerManagerFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
         std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
         std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
-        std::shared_ptr<utils::Executer> io_executer, int initial_peer_count);
+        std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg);
     ~PeerManagerFlowImpl() override;
 
     std::future<std::vector<network::IPv4Address>> get_peers(

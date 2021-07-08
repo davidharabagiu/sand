@@ -3,12 +3,13 @@
 
 #include <any>
 #include <array>
+#include <memory>
 #include <typeinfo>
-#include <utility>
 
 #include <glog/logging.h>
 
 #include "configkeys.hpp"
+#include "fallbackconfigvalueprovider.hpp"
 
 namespace sand::config
 {
@@ -17,68 +18,88 @@ class ConfigLoader;
 class Config
 {
 public:
-    explicit Config(const ConfigLoader &config_loader);
+    explicit Config(const ConfigLoader &             config_loader,
+        std::unique_ptr<FallbackConfigValueProvider> fallback_value_provider = nullptr);
 
-    [[nodiscard]] std::pair<std::string, bool> get_string(ConfigKey key) const
+    [[nodiscard]] std::string get_string(ConfigKey key) const
     {
-        std::string val;
-        bool        ok = get(key, val);
-        return std::make_pair(val, ok);
+        return get<std::string>(key);
     }
 
-    [[nodiscard]] std::pair<long long, bool> get_integer(ConfigKey key) const
+    [[nodiscard]] long long get_integer(ConfigKey key) const
     {
-        long long val;
-        bool      ok = get(key, val);
-        return std::make_pair(val, ok);
+        return get<long long>(key);
     }
 
-    [[nodiscard]] std::pair<double, bool> get_float(ConfigKey key) const
+    [[nodiscard]] double get_float(ConfigKey key) const
     {
-        double val;
-        bool   ok = get(key, val);
-        return std::make_pair(val, ok);
+        return get<double>(key);
     }
 
-    [[nodiscard]] std::pair<bool, bool> get_bool(ConfigKey key) const
+    [[nodiscard]] bool get_bool(ConfigKey key) const
     {
-        bool val;
-        bool ok = get(key, val);
-        return std::make_pair(val, ok);
+        return get<bool>(key);
     }
 
 private:
     template<typename T>
-    bool get(ConfigKey key, T &out) const
+    [[nodiscard]] T get(ConfigKey key) const
     {
         if (key < 0 || key >= ConfigKey::KEY_COUNT)
         {
-            LOG(ERROR) << "Invalid key " << key;
-            return false;
+            LOG(FATAL) << "Invalid key " << key;
         }
 
         const auto &val = values_[key];
         if (!val.has_value())
         {
             LOG(ERROR) << "No config value with key " << key.to_string();
-            return false;
+            return get_fallback_value<T>(key);
         }
 
         try
         {
-            out = std::any_cast<T>(val);
+            return std::any_cast<T>(val);
         }
         catch (const std::bad_any_cast &e)
         {
             LOG(ERROR) << "Expected value type (" << typeid(T).name()
                        << ") does not match actual the actual type (" << val.type().name() << ")";
-            return false;
+            return get_fallback_value<T>(key);
+        }
+    }
+
+    template<typename T>
+    [[nodiscard]] T get_fallback_value(ConfigKey key) const
+    {
+        if (!fallback_value_provider_)
+        {
+            LOG(FATAL) << "Fallback config value provider is missing, cannot continue execution...";
         }
 
-        return true;
+        std::any val = fallback_value_provider_->get(key);
+        if (!val.has_value())
+        {
+            LOG(FATAL) << "No fallback config value with key " << key.to_string();
+        }
+
+        try
+        {
+            return std::any_cast<T>(fallback_value_provider_->get(key));
+        }
+        catch (const std::bad_any_cast &e)
+        {
+            LOG(FATAL) << "Expected value type (" << typeid(T).name()
+                       << ") does not match actual the actual type of the fallback value ("
+                       << val.type().name() << ")";
+        }
+
+        return T {};
     }
 
     std::array<std::any, ConfigKey::KEY_COUNT> values_;
+    const std::shared_ptr<FallbackConfigValueProvider>
+        fallback_value_provider_;  // make it shared_ptr so a Config object is copyable
 };
 }  // namespace sand::config
 

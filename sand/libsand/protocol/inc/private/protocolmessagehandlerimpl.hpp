@@ -20,6 +20,12 @@ class TCPSender;
 class TCPServer;
 }  // namespace sand::network
 
+namespace sand::config
+{
+// Forward declarations
+class Config;
+}  // namespace sand::config
+
 namespace sand::protocol
 {
 // Forward declarations
@@ -34,7 +40,7 @@ public:
     ProtocolMessageHandlerImpl(std::shared_ptr<network::TCPSender> tcp_sender,
         std::shared_ptr<network::TCPServer>                        tcp_server,
         std::shared_ptr<const MessageSerializer>                   message_serializer,
-        std::shared_ptr<utils::Executer> io_executer, unsigned short port);
+        std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg);
     ~ProtocolMessageHandlerImpl() override;
 
     void initialize();

@@ -17,4 +17,5 @@ target_link_libraries(${TARGET_NAME}
         ${GLOG_LIB}
         utils
         network
-        crypto)
+        crypto
+        config)

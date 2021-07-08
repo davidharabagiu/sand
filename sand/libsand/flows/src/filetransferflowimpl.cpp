@@ -8,6 +8,7 @@
 #include <glog/logging.h>
 
 #include "aescipher.hpp"
+#include "config.hpp"
 #include "defer.hpp"
 #include "filehashinterpreter.hpp"
 #include "filestorage.hpp"
@@ -21,7 +22,7 @@ namespace sand::flows
 {
 namespace
 {
-constexpr protocol::PartSize ENCRYPTION_BLOCK_SIZE = 16;
+constexpr protocol::PartSize encryption_block_size = 16;
 
 const char *to_string(FileTransferFlow::State state)
 {
@@ -49,10 +50,7 @@ FileTransferFlowImpl::FileTransferFlowImpl(
     std::unique_ptr<storage::FileHashInterpreter>     file_hash_interpreter,
     std::shared_ptr<storage::TemporaryDataStorage>    temporary_storage,
     std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
-    std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size,
-    size_t max_temp_storage_size, int receive_file_timeout, int drop_point_request_timeout,
-    int lift_proxy_request_timeout, int drop_point_transfer_timeout,
-    int lift_proxy_transfer_timeout)
+    std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
     , peer_address_provider_ {std::move(peer_address_provider)}
@@ -62,14 +60,18 @@ FileTransferFlowImpl::FileTransferFlowImpl(
     , aes_ {std::move(aes)}
     , executer_ {std::move(executer)}
     , io_executer_ {std::move(io_executer)}
-    , max_part_size_ {max_part_size}
-    , max_chunk_size_ {max_chunk_size}
-    , max_temp_storage_size_ {max_temp_storage_size}
-    , receive_file_timeout_ {receive_file_timeout}
-    , drop_point_request_timeout_ {drop_point_request_timeout}
-    , lift_proxy_request_timeout_ {lift_proxy_request_timeout}
-    , drop_point_transfer_timeout_ {drop_point_transfer_timeout}
-    , lift_proxy_transfer_timeout_ {lift_proxy_transfer_timeout}
+    , max_part_size_ {size_t(cfg.get_integer(config::ConfigKey::MAX_PART_SIZE))}
+    , max_chunk_size_ {size_t(cfg.get_integer(config::ConfigKey::MAX_CHUNK_SIZE))}
+    , max_temp_storage_size_ {size_t(cfg.get_integer(config::ConfigKey::MAX_TEMP_STORAGE_SIZE))}
+    , receive_file_timeout_ {int(cfg.get_integer(config::ConfigKey::RECV_FILE_TIMEOUT))}
+    , drop_point_request_timeout_ {int(
+          cfg.get_integer(config::ConfigKey::DROP_POINT_REQUEST_TIMEOUT))}
+    , lift_proxy_request_timeout_ {int(
+          cfg.get_integer(config::ConfigKey::LIFT_PROXY_REQUEST_TIMEOUT))}
+    , drop_point_transfer_timeout_ {int(
+          cfg.get_integer(config::ConfigKey::DROP_POINT_TRANSFER_TIMEOUT))}
+    , lift_proxy_transfer_timeout_ {int(
+          cfg.get_integer(config::ConfigKey::LIFT_PROXY_TRANSFER_TIMEOUT))}
     , commited_temp_storage_ {0}
     , state_ {State::IDLE}
 {
@@ -215,10 +217,10 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
                                                                 max_part_size_);
 
                 protocol::PartSize padded_part_size = part_size;
-                if (padded_part_size % ENCRYPTION_BLOCK_SIZE != 0)
+                if (padded_part_size % encryption_block_size != 0)
                 {
                     padded_part_size =
-                        (padded_part_size / ENCRYPTION_BLOCK_SIZE + 1) * ENCRYPTION_BLOCK_SIZE;
+                        (padded_part_size / encryption_block_size + 1) * encryption_block_size;
                 }
 
                 auto request_drop_point_msg = std::make_unique<protocol::RequestDropPointMessage>();
@@ -586,10 +588,10 @@ bool FileTransferFlowImpl::receive_file(
                 }
 
                 protocol::PartSize padded_part_size = next_part_it->part_size;
-                if (padded_part_size % ENCRYPTION_BLOCK_SIZE != 0)
+                if (padded_part_size % encryption_block_size != 0)
                 {
                     padded_part_size =
-                        (padded_part_size / ENCRYPTION_BLOCK_SIZE + 1) * ENCRYPTION_BLOCK_SIZE;
+                        (padded_part_size / encryption_block_size + 1) * encryption_block_size;
                 }
 
                 auto request_lift_proxy_msg = std::make_unique<protocol::RequestLiftProxyMessage>();

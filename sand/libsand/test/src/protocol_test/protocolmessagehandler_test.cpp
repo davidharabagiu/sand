@@ -4,19 +4,22 @@
 #include <chrono>
 #include <thread>
 
+#include "config.hpp"
 #include "iothreadpool.hpp"
 #include "protocolmessagehandlerimpl.hpp"
 #include "random.hpp"
 #include "testutils.hpp"
 
+#include "configloader_mock.hpp"
 #include "messageserializer_mock.hpp"
 #include "protocolmessagelistener_mock.hpp"
 #include "tcpsender_mock.hpp"
 #include "tcpserver_mock.hpp"
 
 using namespace ::testing;
-using namespace sand::protocol;
-using namespace sand::utils;
+using namespace ::sand::protocol;
+using namespace ::sand::utils;
+using namespace ::sand::config;
 
 namespace
 {
@@ -32,11 +35,20 @@ protected:
         io_executer_ = std::make_shared<IOThreadPool>();
     }
 
+    Config make_config(int port)
+    {
+        ON_CALL(config_loader_, load())
+            .WillByDefault(Return(std::map<std::string, std::any> {
+                {ConfigKey(ConfigKey::PORT).to_string(), static_cast<long long>(port)}}));
+        return Config {config_loader_};
+    }
+
     std::shared_ptr<TCPSenderMock>               tcp_sender_;
     std::shared_ptr<TCPServerMock>               tcp_server_;
     std::shared_ptr<MessageSerializerMock>       serializer_;
     std::shared_ptr<ProtocolMessageListenerMock> listener_;
     std::shared_ptr<Executer>                    io_executer_;
+    NiceMock<ConfigLoaderMock>                   config_loader_;
 };
 }  // namespace
 
@@ -49,7 +61,7 @@ MATCHER_P(
 TEST_F(ProtocolMessageHandlerTest, RegistersForInboundTCPMessages)
 {
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, 1234);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(0));
     EXPECT_CALL(*tcp_server_, register_listener(SmartPointerCompare(uut.get()))).Times(1);
     uut->initialize();
 }
@@ -57,7 +69,7 @@ TEST_F(ProtocolMessageHandlerTest, RegistersForInboundTCPMessages)
 TEST_F(ProtocolMessageHandlerTest, UnregistersFromInboundTCPMessages)
 {
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, 1234);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(0));
     uut->initialize();
     EXPECT_CALL(*tcp_server_, unregister_listener(SmartPointerCompare(uut.get()))).Times(1);
     uut->uninitialize();
@@ -85,7 +97,7 @@ TEST_F(ProtocolMessageHandlerTest, SendAndReceiveReply)
     std::vector<std::uint8_t> reply_bytes {0x04, 0x05, 0x06};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     EXPECT_CALL(*serializer_, serialize(Matcher<const PullMessage &>(
                                   AllOf(Field(&PullMessage::message_code, request.message_code),
@@ -140,7 +152,7 @@ TEST_F(ProtocolMessageHandlerTest, SendByeMessage)
     std::vector<std::uint8_t> msg_bytes {0x01, 0x02, 0x03};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     EXPECT_CALL(*serializer_, serialize(Matcher<const ByeMessage &>(
                                   AllOf(Field(&ByeMessage::message_code, msg.message_code),
@@ -180,7 +192,7 @@ TEST_F(ProtocolMessageHandlerTest, SendReply)
     std::vector<std::uint8_t> msg_bytes {0x01, 0x02, 0x03};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     EXPECT_CALL(*serializer_,
         serialize(Matcher<const PullReply &>(AllOf(
@@ -217,7 +229,7 @@ TEST_F(ProtocolMessageHandlerTest, Send_DuplicateRequestId)
     std::vector<std::uint8_t> request_bytes {0x01, 0x02, 0x03};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     ON_CALL(*serializer_, serialize(A<const PushMessage &>())).WillByDefault(Return(request_bytes));
     EXPECT_CALL(*tcp_sender_, send(p1, port, _, _)).Times(1).WillOnce([](...) {
@@ -247,7 +259,7 @@ TEST_F(ProtocolMessageHandlerTest, Send_PeerUnreachable)
     std::vector<std::uint8_t> request_bytes {0x01, 0x02, 0x03};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     ON_CALL(*serializer_, serialize(A<const PushMessage &>())).WillByDefault(Return(request_bytes));
     EXPECT_CALL(*tcp_sender_, send(p1, port, _, _)).Times(1).WillOnce([](...) {
@@ -286,7 +298,7 @@ TEST_F(ProtocolMessageHandlerTest, SendAndReceiveStrayReply)
     std::vector<std::uint8_t> reply_bytes {0x04, 0x05, 0x06};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     ON_CALL(*serializer_, serialize(A<const PushMessage &>())).WillByDefault(Return(request_bytes));
     ON_CALL(*serializer_, deserialize(_, _))
@@ -332,7 +344,7 @@ TEST_F(ProtocolMessageHandlerTest, SendAndReceiveReply_AddressMismatch)
     std::vector<std::uint8_t> reply_bytes {0x04, 0x05, 0x06};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     ON_CALL(*serializer_, serialize(A<const PushMessage &>())).WillByDefault(Return(request_bytes));
     ON_CALL(*serializer_, deserialize(_, _))
@@ -377,7 +389,7 @@ TEST_F(ProtocolMessageHandlerTest, SendAndReceiveReply_RequestMessageCodeMismatc
     std::vector<std::uint8_t> reply_bytes {0x04, 0x05, 0x06};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
 
     ON_CALL(*serializer_, serialize(A<const PushMessage &>())).WillByDefault(Return(request_bytes));
     ON_CALL(*serializer_, deserialize(_, _))
@@ -416,7 +428,7 @@ TEST_F(ProtocolMessageHandlerTest, InboundRequest)
     std::vector<std::uint8_t> request_bytes {0x01, 0x02, 0x03};
 
     auto uut = std::make_shared<ProtocolMessageHandlerImpl>(
-        tcp_sender_, tcp_server_, serializer_, io_executer_, port);
+        tcp_sender_, tcp_server_, serializer_, io_executer_, make_config(port));
     uut->register_message_listener(listener_);
 
     EXPECT_CALL(*serializer_, deserialize(request_bytes, _))

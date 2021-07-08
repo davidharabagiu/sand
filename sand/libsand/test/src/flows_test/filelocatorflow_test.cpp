@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "config.hpp"
 #include "filelocatorflowimpl.hpp"
 #include "inboundrequestdispatcher.hpp"
 #include "random.hpp"
@@ -14,6 +15,7 @@
 #include "threadpool.hpp"
 #include "transferhandleimpl.hpp"
 
+#include "configloader_mock.hpp"
 #include "filehashinterpreter_mock.hpp"
 #include "filelocatorflowlistener_mock.hpp"
 #include "filestorage_mock.hpp"
@@ -25,6 +27,7 @@ using namespace ::sand::flows;
 using namespace ::sand::utils;
 using namespace ::sand::protocol;
 using namespace ::sand::storage;
+using namespace ::sand::config;
 using namespace ::testing;
 
 namespace
@@ -48,11 +51,18 @@ protected:
     std::unique_ptr<FileLocatorFlow> make_flow(
         int search_timeout_sec = 0, int routing_table_entry_expiration_time_sec = 0)
     {
+        ON_CALL(config_loader_, load())
+            .WillByDefault(Return(std::map<std::string, std::any> {
+                {ConfigKey(ConfigKey::SEARCH_PROPAGATION_DEGREE).to_string(),
+                    (long long) {search_propagation_degree_}},
+                {ConfigKey(ConfigKey::SEARCH_TIMEOUT).to_string(),
+                    (long long) {search_timeout_sec}},
+                {ConfigKey(ConfigKey::ROUTING_TABLE_ENTRY_TIMEOUT).to_string(),
+                    (long long) {routing_table_entry_expiration_time_sec}}}));
         return std::make_unique<FileLocatorFlowImpl>(protocol_message_handler_,
             inbound_request_dispatcher_, peer_address_provider_, file_storage_,
             std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), secret_data_interpreter_,
-            thread_pool_, thread_pool_, pub_key_, pri_key_, search_propagation_degree_,
-            search_timeout_sec, routing_table_entry_expiration_time_sec);
+            thread_pool_, thread_pool_, pub_key_, pri_key_, Config {config_loader_});
     }
 
     static auto make_get_peers_action(const std::vector<IPv4Address> &peers)
@@ -99,6 +109,7 @@ protected:
     std::shared_ptr<SecretDataInterpreterMock>   secret_data_interpreter_;
     std::shared_ptr<Executer>                    thread_pool_;
     std::shared_ptr<FileLocatorFlowListenerMock> listener_;
+    NiceMock<ConfigLoaderMock>                   config_loader_;
     Random                                       rng_;
     const std::string                            pub_key_                   = "pub_key";
     const std::string                            pri_key_                   = "pri_key";

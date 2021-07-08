@@ -35,8 +35,15 @@ class ProtocolMessageHandler;
 
 namespace sand::storage
 {
+// Forward declarations
 class FileHashInterpreter;
 }  // namespace sand::storage
+
+namespace sand::config
+{
+// Forward declarations
+class Config;
+}  // namespace sand::config
 
 namespace sand::flows
 {
@@ -56,10 +63,7 @@ public:
         std::unique_ptr<storage::FileHashInterpreter>  file_hash_interpreter,
         std::shared_ptr<storage::TemporaryDataStorage> temporary_storage,
         std::shared_ptr<crypto::AESCipher> aes, std::shared_ptr<utils::Executer> executer,
-        std::shared_ptr<utils::Executer> io_executer, size_t max_part_size, size_t max_chunk_size,
-        size_t max_temp_storage_size, int receive_file_timeout, int drop_point_request_timeout,
-        int lift_proxy_request_timeout, int drop_point_transfer_timeout,
-        int lift_proxy_transfer_timeout);
+        std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg);
 
     ~FileTransferFlowImpl() override;
 

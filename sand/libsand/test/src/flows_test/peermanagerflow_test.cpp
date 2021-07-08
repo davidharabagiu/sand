@@ -5,6 +5,7 @@
 #include <future>
 #include <memory>
 
+#include "config.hpp"
 #include "dnlconfig.hpp"
 #include "inboundrequestdispatcher.hpp"
 #include "peermanagerflowimpl.hpp"
@@ -12,6 +13,7 @@
 #include "testutils.hpp"
 #include "threadpool.hpp"
 
+#include "configloader_mock.hpp"
 #include "dnlconfigloader_mock.hpp"
 #include "peermanagerflowlistener_mock.hpp"
 #include "protocolmessagehandler_mock.hpp"
@@ -40,10 +42,15 @@ protected:
         listener_ = std::make_shared<NiceMock<PeerManagerFlowListenerMock>>();
     }
 
-    std::unique_ptr<PeerManagerFlowImpl> make_peer_manager()
+    std::unique_ptr<PeerManagerFlowImpl> make_peer_manager(int initial_peer_count = 0)
     {
+        ON_CALL(config_loader_, load())
+            .WillByDefault(Return(std::map<std::string, std::any> {
+                {ConfigKey(ConfigKey::INITIAL_PEER_COUNT).to_string(),
+                    static_cast<long long>(initial_peer_count)}}));
         auto flow = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
-            inbound_request_dispatcher_, dnl_config_, executer_, executer_, 0);
+            inbound_request_dispatcher_, dnl_config_, executer_, executer_,
+            Config {config_loader_});
         return flow;
     }
 
@@ -73,6 +80,7 @@ protected:
     std::shared_ptr<Executer>                    executer_;
     std::shared_ptr<PeerManagerFlowListenerMock> listener_;
     std::chrono::milliseconds                    timeout_ {100};
+    NiceMock<ConfigLoaderMock>                   config_loader_;
     Random                                       rng_;
 };
 }  // namespace
@@ -844,8 +852,7 @@ TEST_F(PeerManagerFlowTest, PreloadPeers)
             .WillOnce(testutils::make_basic_reply_generator(true));
     }
 
-    auto peer_manager = std::make_unique<PeerManagerFlowImpl>(protocol_message_handler_,
-        inbound_request_dispatcher_, dnl_config_, executer_, executer_, 10);
+    auto peer_manager = make_peer_manager(10);
     peer_manager->start();
     EXPECT_TRUE(testutils::wait_for(
         [&] { return peer_manager->state() == PeerManagerFlow::State::RUNNING; }, 100));

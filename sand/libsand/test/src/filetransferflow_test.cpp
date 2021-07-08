@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <memory>
 
+#include "config.hpp"
 #include "filetransferflowimpl.hpp"
 #include "inboundrequestdispatcher.hpp"
 #include "random.hpp"
@@ -12,6 +13,7 @@
 #include "transferhandleimpl.hpp"
 
 #include "aescipher_mock.hpp"
+#include "configloader_mock.hpp"
 #include "filehashinterpreter_mock.hpp"
 #include "filestorage_mock.hpp"
 #include "filetransferflowlistener_mock.hpp"
@@ -50,12 +52,28 @@ protected:
         int drop_point_request_timeout = 0, int lift_proxy_request_timeout = 0,
         int drop_point_transfer_timeout = 0, int lift_proxy_transfer_timeout = 0)
     {
+        ON_CALL(config_loader_, load())
+            .WillByDefault(Return(
+                std::map<std::string, std::any> {{ConfigKey(ConfigKey::MAX_PART_SIZE).to_string(),
+                                                     static_cast<long long>(max_part_size_)},
+                    {ConfigKey(ConfigKey::MAX_CHUNK_SIZE).to_string(),
+                        static_cast<long long>(max_chunk_size_)},
+                    {ConfigKey(ConfigKey::MAX_TEMP_STORAGE_SIZE).to_string(),
+                        static_cast<long long>(max_temp_storage_size_)},
+                    {ConfigKey(ConfigKey::RECV_FILE_TIMEOUT).to_string(),
+                        static_cast<long long>(receive_file_timeout)},
+                    {ConfigKey(ConfigKey::DROP_POINT_REQUEST_TIMEOUT).to_string(),
+                        static_cast<long long>(drop_point_request_timeout)},
+                    {ConfigKey(ConfigKey::LIFT_PROXY_REQUEST_TIMEOUT).to_string(),
+                        static_cast<long long>(lift_proxy_request_timeout)},
+                    {ConfigKey(ConfigKey::DROP_POINT_TRANSFER_TIMEOUT).to_string(),
+                        static_cast<long long>(drop_point_transfer_timeout)},
+                    {ConfigKey(ConfigKey::LIFT_PROXY_TRANSFER_TIMEOUT).to_string(),
+                        static_cast<long long>(lift_proxy_transfer_timeout)}}));
         return std::make_unique<FileTransferFlowImpl>(protocol_message_handler_,
             inbound_request_dispatcher_, peer_address_provider_, file_storage_,
             std::unique_ptr<FileHashInterpreter>(file_hash_interpreter_), temporary_data_storage_,
-            aes_, thread_pool_, thread_pool_, max_part_size_, max_chunk_size_,
-            max_temp_storage_size_, receive_file_timeout, drop_point_request_timeout,
-            lift_proxy_request_timeout, drop_point_transfer_timeout, lift_proxy_transfer_timeout);
+            aes_, thread_pool_, thread_pool_, Config {config_loader_});
     }
 
     static auto make_get_peers_action(const std::vector<IPv4Address> &peers)
@@ -143,11 +161,12 @@ protected:
     std::shared_ptr<AESCipherMock>                aes_;
     std::shared_ptr<Executer>                     thread_pool_;
     std::shared_ptr<FileTransferFlowListenerMock> listener_;
+    NiceMock<ConfigLoaderMock>                    config_loader_;
     Random                                        rng_;
     const size_t                                  max_part_size_         = 1024;  // 1KiB
     const size_t                                  max_chunk_size_        = 128;
     const size_t                                  max_temp_storage_size_ = 4096;  // 4KiB
-};
+};                                                                                // namespace
 }  // namespace
 
 TEST_F(FileTransferFlowTest, StateChanges)

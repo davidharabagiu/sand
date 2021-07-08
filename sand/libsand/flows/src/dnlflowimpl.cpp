@@ -1,11 +1,13 @@
 #include "dnlflowimpl.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <set>
 #include <utility>
 
 #include <glog/logging.h>
 
+#include "config.hpp"
 #include "dnlconfig.hpp"
 #include "dnlflowlistener.hpp"
 #include "inboundrequestdispatcher.hpp"
@@ -30,7 +32,7 @@ const char *to_string(DNLFlow::State state)
 DNLFlowImpl::DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
     std::shared_ptr<InboundRequestDispatcher> inbound_request_dispatcher,
     std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
-    std::shared_ptr<utils::Executer> io_executer, int sync_period_ms)
+    std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg)
     : protocol_message_handler_ {std::move(protocol_message_handler)}
     , inbound_request_dispatcher_ {std::move(inbound_request_dispatcher)}
     , dnl_config_ {std::move(dnl_config)}
@@ -38,7 +40,9 @@ DNLFlowImpl::DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> proto
     , io_executer_ {std::move(io_executer)}
     , sync_timer_ {io_executer_}
     , state_ {State::IDLE}
-    , sync_period_ms_ {sync_period_ms}
+    , sync_period_ms_ {int(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::seconds(cfg.get_integer(config::ConfigKey::DNL_SYNC_PERIOD)))
+                               .count())}
 {
     inbound_request_dispatcher_->set_callback<protocol::PullMessage>([this](auto &&p1, auto &&p2) {
         handle_pull(std::forward<decltype(p1)>(p1), std::forward<decltype(p2)>(p2));

@@ -22,6 +22,7 @@ class ProtocolMessageHandler;
 
 namespace sand::config
 {
+class Config;
 class DNLConfig;
 }  // namespace sand::config
 
@@ -36,7 +37,7 @@ public:
     DNLFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,
         std::shared_ptr<InboundRequestDispatcher>                 inbound_request_dispatcher,
         std::shared_ptr<config::DNLConfig> dnl_config, std::shared_ptr<utils::Executer> executer,
-        std::shared_ptr<utils::Executer> io_executer, int sync_period_ms);
+        std::shared_ptr<utils::Executer> io_executer, const config::Config &cfg);
     ~DNLFlowImpl() override;
 
     bool                register_listener(std::shared_ptr<DNLFlowListener> listener) override;

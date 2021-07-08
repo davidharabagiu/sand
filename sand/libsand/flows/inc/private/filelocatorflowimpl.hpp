@@ -32,6 +32,12 @@ class FileStorage;
 class FileHashInterpreter;
 }  // namespace sand::storage
 
+namespace sand::config
+{
+// Forward declarations
+class Config;
+}  // namespace sand::config
+
 namespace sand::flows
 {
 // Forward declarations
@@ -48,8 +54,7 @@ public:
         std::unique_ptr<storage::FileHashInterpreter>    file_hash_interpreter,
         std::shared_ptr<protocol::SecretDataInterpreter> secret_data_interpreter,
         std::shared_ptr<utils::Executer> executer, std::shared_ptr<utils::Executer> io_executer,
-        std::string public_key, std::string private_key, int search_propagation_degree,
-        int search_timeout_sec, int routing_table_entry_expiration_time_sec);
+        std::string public_key, std::string private_key, const config::Config &cfg);
 
     ~FileLocatorFlowImpl() override;
 

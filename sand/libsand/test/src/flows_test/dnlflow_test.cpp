@@ -6,6 +6,7 @@
 #include <future>
 #include <memory>
 
+#include "config.hpp"
 #include "dnlconfig.hpp"
 #include "dnlflowimpl.hpp"
 #include "inboundrequestdispatcher.hpp"
@@ -13,6 +14,7 @@
 #include "testutils.hpp"
 #include "threadpool.hpp"
 
+#include "configloader_mock.hpp"
 #include "dnlconfigloader_mock.hpp"
 #include "dnlflowlistener_mock.hpp"
 #include "protocolmessagehandler_mock.hpp"
@@ -43,8 +45,12 @@ protected:
 
     std::unique_ptr<DNLFlow> make_dnl_flow(int sync_period_ms = 0)
     {
+        ON_CALL(config_loader_, load())
+            .WillByDefault(Return(
+                std::map<std::string, std::any> {{ConfigKey(ConfigKey::DNL_SYNC_PERIOD).to_string(),
+                    (long long) {sync_period_ms / 1000}}}));
         return std::make_unique<DNLFlowImpl>(protocol_message_handler_, inbound_request_dispatcher_,
-            dnl_config_, thread_pool_, thread_pool_, sync_period_ms);
+            dnl_config_, thread_pool_, thread_pool_, Config {config_loader_});
     }
 
     std::shared_ptr<ProtocolMessageHandlerMock> protocol_message_handler_;
@@ -53,6 +59,7 @@ protected:
     std::shared_ptr<DNLConfig>                  dnl_config_;
     std::shared_ptr<Executer>                   thread_pool_;
     std::shared_ptr<DNLFlowListenerMock>        listener_;
+    NiceMock<ConfigLoaderMock>                  config_loader_;
     Random                                      rng_;
 };
 }  // namespace
@@ -618,7 +625,7 @@ TEST_F(DNLFlowTest, DNLSync_SendMessage)
     using namespace std::chrono;
 
     const auto   sleep_duration = std::chrono::milliseconds(50);
-    const auto   timer_interval = std::chrono::milliseconds(250);
+    const auto   timer_interval = std::chrono::milliseconds(1000);
     const size_t peer_count     = 3;
     const auto   other_dnl_addr = testutils::random_ip_address(rng_);
 
@@ -674,7 +681,7 @@ TEST_F(DNLFlowTest, DNLSync_SendMessage_MergeLocalAndRemoteEventLists)
     using namespace std::chrono;
 
     const auto   sleep_duration         = std::chrono::milliseconds(50);
-    const auto   timer_interval         = std::chrono::milliseconds(250);
+    const auto   timer_interval         = std::chrono::milliseconds(1000);
     const size_t initial_peer_count     = 3;
     const size_t num_of_peers_to_remove = 1;
     const size_t num_of_peers_to_add    = 2;
