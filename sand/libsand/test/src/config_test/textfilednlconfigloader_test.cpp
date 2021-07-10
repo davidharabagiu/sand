@@ -22,7 +22,7 @@ TEST_F(TextFileDNLConfigLoaderTest, LoadConfig)
         conversion::to_ipv4_address("10.0.0.2"), conversion::to_ipv4_address("10.0.0.3"),
         conversion::to_ipv4_address("10.0.0.4"), conversion::to_ipv4_address("10.0.0.5")};
 
-    TextFileDNLConfigLoader loader {"test/dnl_config.txt"};
+    TextFileDNLConfigLoader loader {"dnl_config.txt"};
     auto                    got_nodes = loader.load();
 
     EXPECT_EQ(std::set<IPv4Address>(got_nodes.cbegin(), got_nodes.cend()), expected_nodes);

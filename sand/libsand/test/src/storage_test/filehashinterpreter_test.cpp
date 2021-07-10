@@ -90,7 +90,7 @@ TEST_F(FileHashInterpreterTest, GetFileSize)
 
 TEST_F(FileHashInterpreterTest, CreateHash)
 {
-    const std::string file_path = "test/lorem_ipsum.txt";
+    const std::string file_path = "lorem_ipsum.txt";
     const std::string file_name = "lorem_ipsum.txt";
 
     std::vector<Byte> content_hash(64);
@@ -125,7 +125,7 @@ TEST_F(FileHashInterpreterTest, CreateHash)
 
 TEST_F(FileHashInterpreterTest, CreateHash_InvalidFile)
 {
-    const std::string file_path = "test/wowmuch.file";
+    const std::string file_path = "wowmuch.file";
 
     FileHashInterpreterImpl fhi {
         std::unique_ptr<Base64Encoder>(b64_), std::unique_ptr<SHA3Hasher>(sha3_)};

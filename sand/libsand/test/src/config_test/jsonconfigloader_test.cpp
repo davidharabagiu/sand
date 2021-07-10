@@ -13,8 +13,8 @@ namespace
 class JSONConfigLoaderTest : public Test
 {
 protected:
-    const std::string basic_json_config_path      = "test/config_basic.json";
-    const std::string multilevel_json_config_path = "test/config_multilevel.json";
+    const std::string basic_json_config_path      = "config_basic.json";
+    const std::string multilevel_json_config_path = "config_multilevel.json";
 };
 }  // namespace
 

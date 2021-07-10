@@ -28,7 +28,7 @@ protected:
     const std::string str_ = "Society does not consist of individuals, but expresses the sum of "
                              "interrelations, the relations within which these individuals stand.";
     const uint8_t *   str_data_  = reinterpret_cast<const uint8_t *>(str_.data());
-    const std::string test_file_ = "test/lorem_ipsum.txt";
+    const std::string test_file_ = "lorem_ipsum.txt";
 };
 }  // namespace
 
