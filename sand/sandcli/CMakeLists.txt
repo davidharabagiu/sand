@@ -9,8 +9,6 @@ include(${SAND_CMAKE_SCRIPTS_DIR}/check_asan.cmake REQUIRED)
 file(GLOB_RECURSE SANDCLI_SOURCES . *.cpp)
 add_executable(${TARGET_NAME} ${SANDCLI_SOURCES})
 
-target_include_directories(sandc PUBLIC ${CMAKE_SOURCE_DIR}/libsand/include)
-
 find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME} sand ${GLOG_LIB})
 
