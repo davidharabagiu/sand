@@ -4,8 +4,8 @@
 
 namespace sand
 {
-SANDNode::SANDNode(const std::string &config_file_path)
-    : impl_ {std::make_unique<SANDNodeImpl>(config_file_path)}
+SANDNode::SANDNode(const std::string &app_data_dir_path, const std::string &config_file_name)
+    : impl_ {std::make_unique<SANDNodeImpl>(app_data_dir_path, config_file_name)}
 {}
 
 SANDNode::SANDNode(SANDNode &&other) noexcept
@@ -30,13 +30,13 @@ bool SANDNode::unregister_listener(const std::shared_ptr<SANDNodeListener> &list
     return impl_->unregister_listener(listener);
 }
 
-bool SANDNode::initialize()
+bool SANDNode::start()
 {
-    return impl_->initialize();
+    return impl_->start();
 }
 
-bool SANDNode::uninitialize()
+bool SANDNode::stop()
 {
-    return impl_->uninitialize();
+    return impl_->stop();
 }
 }  // namespace sand

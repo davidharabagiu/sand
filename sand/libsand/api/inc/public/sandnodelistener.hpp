@@ -9,9 +9,6 @@ class SAND_API SANDNodeListener
 {
 public:
     virtual ~SANDNodeListener() = default;
-
-    virtual void on_initialization_completed(bool success) = 0;
-    virtual void on_uninitialization_completed()           = 0;
 };
 }  // namespace sand
 

@@ -15,7 +15,7 @@ class SANDNodeListener;
 class SAND_API SANDNode
 {
 public:
-    explicit SANDNode(const std::string &config_file_path);
+    SANDNode(const std::string &app_data_dir_path, const std::string &config_file_name);
     SANDNode(SANDNode &&other) noexcept;
     SANDNode &operator=(SANDNode &&rhs) noexcept;
     ~SANDNode();
@@ -23,8 +23,8 @@ public:
     bool register_listener(const std::shared_ptr<SANDNodeListener> &listener);
     bool unregister_listener(const std::shared_ptr<SANDNodeListener> &listener);
 
-    bool initialize();
-    bool uninitialize();
+    bool start();
+    bool stop();
 
 private:
     std::unique_ptr<SANDNodeImpl> impl_;

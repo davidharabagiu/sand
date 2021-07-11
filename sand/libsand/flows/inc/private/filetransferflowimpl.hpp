@@ -51,9 +51,7 @@ namespace sand::flows
 class InboundRequestDispatcher;
 class PeerAddressProvider;
 
-class FileTransferFlowImpl
-    : public FileTransferFlow
-    , public std::enable_shared_from_this<FileTransferFlowImpl>
+class FileTransferFlowImpl : public FileTransferFlow
 {
 public:
     FileTransferFlowImpl(std::shared_ptr<protocol::ProtocolMessageHandler> protocol_message_handler,

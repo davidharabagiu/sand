@@ -7,24 +7,24 @@
 
 namespace
 {
-std::string get_full_path(const std::string &file_name)
+std::string path_join(const std::string &directory, const std::string &file_name)
 {
-    return (std::filesystem::path {APP_DATA_DIR} / file_name).string();
+    return (std::filesystem::path {directory} / file_name).string();
 }
 }  // namespace
 
 namespace sand
 {
-DefaultConfigValues::DefaultConfigValues(bool is_dnl_node)
+DefaultConfigValues::DefaultConfigValues(const std::string &app_data_dir_path, bool is_dnl_node)
     : default_values_ {/* PORT */ 7874LL,
-          /* KNOWN_DNL_NODES_LIST_PATH */ get_full_path("dnl_config.txt"),
+          /* KNOWN_DNL_NODES_LIST_PATH */ path_join(app_data_dir_path, "dnl_config.txt"),
           /* IS_DNL_NODE */ is_dnl_node, /* INITIAL_PEER_COUNT */ 10LL,
           /* SEARCH_PROPAGATION_DEGREE */ 3LL, /* SEARCH_TIMEOUT */ 0LL,
           /* ROUTING_TABLE_ENTRY_TIMEOUT */ 0LL, /* RECV_FILE_TIMEOUT */ 0LL,
           /* DROP_POINT_REQUEST_TIMEOUT */ 0LL, /* DROP_POINT_TRANSFER_TIMEOUT */ 0LL,
           /* LIFT_PROXY_REQUEST_TIMEOUT */ 0LL, /* LIFT_PROXY_TRANSFER_TIMEOUT */ 0LL,
-          /* METADATA_FILE_PATH */ get_full_path("storage_metadata.json"),
-          /* FILE_STORAGE_PATH */ get_full_path("storage"),
+          /* METADATA_FILE_PATH */ path_join(app_data_dir_path, "storage_metadata.json"),
+          /* FILE_STORAGE_PATH */ path_join(app_data_dir_path, "storage"),
           /* MAX_PART_SIZE */ 128LL * 1024 * 1024 /* = 128 MiB */,
           /* MAX_CHUNK_SIZE */ 4LL * 1024 * 1024 /* = 4 MiB */,
           /* MAX_TEMP_STORAGE_SIZE */ 1LL * 1024 * 1024 * 1024 /* = 1 GiB */,
