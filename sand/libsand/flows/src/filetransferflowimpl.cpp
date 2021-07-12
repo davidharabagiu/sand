@@ -1551,6 +1551,11 @@ void FileTransferFlowImpl::stop_impl()
         temporary_storage_->remove(kv.second.storage_handle);
     }
 
+    for (const auto &kv : inbound_transfers_)
+    {
+        file_storage_->delete_file(kv.second.transfer_handle.data()->search_handle.file_hash);
+    }
+
     outbound_transfers_.clear();
     inbound_transfers_.clear();
     pending_transfer_cancellations_.clear();

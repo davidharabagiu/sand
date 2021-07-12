@@ -192,11 +192,17 @@ bool SANDNodeImpl::start()
     {
         std::unique_lock lock {mutex_};
         cv_waiting_for_start_.wait(lock, [this] {
-            return (peer_manager_flow_->state() == flows::PeerManagerFlow::State::ERROR ||
-                       peer_manager_flow_->state() == flows::PeerManagerFlow::State::RUNNING) &&
-                   file_locator_flow_->state() == flows::FileLocatorFlow::State::RUNNING &&
-                   file_transfer_flow_->state() == flows::FileTransferFlow::State::RUNNING;
+            return ((peer_manager_flow_->state() == flows::PeerManagerFlow::State::ERROR ||
+                        peer_manager_flow_->state() == flows::PeerManagerFlow::State::RUNNING) &&
+                       file_locator_flow_->state() == flows::FileLocatorFlow::State::RUNNING &&
+                       file_transfer_flow_->state() == flows::FileTransferFlow::State::RUNNING) ||
+                   state_ == State::IDLE;
         });
+
+        if (state_ == State::IDLE)
+        {
+            return false;
+        }
     }
 
     if (peer_manager_flow_->state() == flows::PeerManagerFlow::State::ERROR)
@@ -212,11 +218,13 @@ bool SANDNodeImpl::start()
 bool SANDNodeImpl::stop()
 {
     auto current_state = state();
-    if (current_state != State::RUNNING && current_state != State::ERROR)
+    if (current_state != State::RUNNING && current_state != State::ERROR &&
+        current_state != State::SEARCHING && current_state != State::DOWNLOADING)
     {
         LOG(WARNING) << "Cannot stop node from state " << to_string(current_state);
         return false;
     }
+
     set_state(State::STOPPING);
 
     tcp_server_io_ctx_->stop();
@@ -241,7 +249,18 @@ bool SANDNodeImpl::stop()
     tcp_server_io_ctx_.reset();
     tcp_sender_io_ctx_.reset();
 
+    upload_state_ = UploadState::IDLE;
+    current_download_.clear();
+    latest_download_succeeded_ = false;
+    latest_download_error_.clear();
+    current_upload_.clear();
+
     set_state(State::IDLE);
+
+    cv_waiting_for_start_.notify_one();
+    cv_waiting_for_download_completion_.notify_one();
+    cv_waiting_for_search_.notify_one();
+
     return true;
 }
 
@@ -284,7 +303,7 @@ bool SANDNodeImpl::download_file(
     set_state(State::SEARCHING);
 
     {
-        auto             pred = [this] { return current_download_.is_valid(); };
+        auto pred = [this] { return current_download_.is_valid() || state_ == State::IDLE; };
         std::unique_lock lock {mutex_};
         auto             timeout = cfg_.get_integer(config::ConfigKey::SEARCH_TIMEOUT);
         if (timeout > 0)
@@ -296,6 +315,11 @@ bool SANDNodeImpl::download_file(
             LOG(WARNING) << "Search timeout disabled, there is a very high risk of endless wait. "
                             "Please set a search timeout in the configuration file.";
             cv_waiting_for_search_.wait(lock, pred);
+        }
+
+        if (state_ == State::IDLE)
+        {
+            return false;
         }
 
         if (!current_download_)
@@ -317,7 +341,13 @@ bool SANDNodeImpl::download_file(
 
     {
         std::unique_lock lock {mutex_};
-        cv_waiting_for_download_completion_.wait(lock, [this] { return !current_download_; });
+        cv_waiting_for_download_completion_.wait(
+            lock, [this] { return !current_download_ || state_ == State::IDLE; });
+
+        if (state_ == State::IDLE)
+        {
+            return false;
+        }
 
         if (!latest_download_succeeded_)
         {
