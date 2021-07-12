@@ -25,6 +25,7 @@ namespace utils
 // Forward declarations
 class ThreadPool;
 class IOThreadPool;
+class Timer;
 }  // namespace utils
 
 namespace storage
@@ -82,13 +83,20 @@ private:
         DOWNLOADING
     };
 
+    enum class UploadState
+    {
+        IDLE,
+        WAITING_FOR_CONFIRMATION,
+        UPLOADING
+    };
+
 private:
     State state() const;
     void  set_state(State new_state);
     void  on_peer_manager_flow_state_changed(flows::PeerManagerFlow::State new_state);
     void  on_file_locator_flow_state_changed(flows::FileLocatorFlow::State new_state);
     void  on_file_found(const flows::TransferHandle &transfer_handle);
-    void  on_file_wanted(const flows::SearchHandle &transfer_handle);
+    void  on_file_wanted(const flows::SearchHandle &search_handle);
     void  on_transfer_confirmed(const flows::TransferHandle &transfer_handle);
     void  on_file_transfer_flow_state_changed(flows::FileTransferFlow::State new_state);
     void  on_transfer_progress_changed(
@@ -110,11 +118,25 @@ private:
         }
     }
 
+    constexpr static const char *to_string(UploadState state)
+    {
+        switch (state)
+        {
+            case UploadState::IDLE: return "IDLE";
+            case UploadState::WAITING_FOR_CONFIRMATION: return "WAITING_FOR_CONFIRMATION";
+            case UploadState::UPLOADING: return "UPLOADING";
+            default: return "INVALID_STATE";
+        }
+    }
+
 private:
     State                                    state_;
+    UploadState                              upload_state_;
     flows::TransferHandle                    current_download_;
     bool                                     latest_download_succeeded_;
     std::string                              latest_download_error_;
+    flows::TransferHandle                    current_upload_;
+    std::unique_ptr<utils::Timer>            pending_transfer_confirmation_timeout_;
     const std::string                        app_data_dir_path_;
     config::Config                           cfg_;
     utils::ListenerGroup<SANDNodeListener>   listener_group_;
@@ -130,6 +152,7 @@ private:
     std::unique_ptr<flows::FileTransferFlow> file_transfer_flow_;
     FileTransferFlowListenerDelegate         file_transfer_flow_listener_;
     mutable std::mutex                       mutex_;
+    mutable std::mutex                       upload_procedure_mutex_;
     std::condition_variable                  cv_waiting_for_start_;
     std::condition_variable                  cv_waiting_for_search_;
     std::condition_variable                  cv_waiting_for_download_completion_;

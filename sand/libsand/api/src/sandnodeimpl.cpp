@@ -31,6 +31,7 @@
 #include "temporarydatastorageimpl.hpp"
 #include "textfilednlconfigloader.hpp"
 #include "threadpool.hpp"
+#include "timer.hpp"
 
 namespace
 {
@@ -51,6 +52,7 @@ namespace sand
 {
 SANDNodeImpl::SANDNodeImpl(std::string app_data_dir_path, const std::string &config_file_name)
     : state_ {State::IDLE}
+    , upload_state_ {UploadState::IDLE}
     , latest_download_succeeded_ {false}
     , app_data_dir_path_ {std::move(app_data_dir_path)}
     , cfg_ {config::JSONConfigLoader {path_join(app_data_dir_path_, config_file_name)},
@@ -143,6 +145,8 @@ bool SANDNodeImpl::start()
     tcp_sender_io_ctx_ = std::make_unique<boost::asio::io_context>();
     tcp_server_io_ctx_ = std::make_unique<boost::asio::io_context>();
 
+    pending_transfer_confirmation_timeout_ = std::make_unique<utils::Timer>(io_thread_pool_);
+
     io_thread_pool_->add_job([this](const utils::CompletionToken &) { tcp_sender_io_ctx_->run(); });
     io_thread_pool_->add_job([this](const utils::CompletionToken &) { tcp_server_io_ctx_->run(); });
 
@@ -231,6 +235,7 @@ bool SANDNodeImpl::stop()
     peer_manager_flow_.reset();
 
     file_storage_.reset();
+    pending_transfer_confirmation_timeout_.reset();
     thread_pool_.reset();
     io_thread_pool_.reset();
     tcp_server_io_ctx_.reset();
@@ -370,11 +375,93 @@ void SANDNodeImpl::on_file_found(const flows::TransferHandle &transfer_handle)
     cv_waiting_for_search_.notify_one();
 }
 
-void SANDNodeImpl::on_file_wanted(const flows::SearchHandle & /*transfer_handle*/)
-{}
+void SANDNodeImpl::on_file_wanted(const flows::SearchHandle &search_handle)
+{
+    auto current_state = state();
+    if (current_state == State::IDLE || current_state == State::STARTING ||
+        current_state == State::STOPPING)
+    {
+        LOG(INFO) << "Current node state not fit for uploading files: " << to_string(current_state);
+        return;
+    }
 
-void SANDNodeImpl::on_transfer_confirmed(const flows::TransferHandle & /*transfer_handle*/)
-{}
+    std::lock_guard lock {upload_procedure_mutex_};
+
+    if (upload_state_ != UploadState::IDLE)
+    {
+        LOG(INFO) << "Upload already in progress or pending upload, ignoring request";
+        return;
+    }
+
+    auto transfer_handle = file_transfer_flow_->create_offer(search_handle).get();
+    if (!file_locator_flow_->send_offer(transfer_handle))
+    {
+        LOG(ERROR) << "Cannot send offer, abandoning upload procedure";
+        return;
+    }
+
+    current_upload_ = transfer_handle;
+    upload_state_   = UploadState::WAITING_FOR_CONFIRMATION;
+
+    auto confirmation_timeout_sec = cfg_.get_integer(config::ConfigKey::CONFIRM_TRANSFER_TIMEOUT);
+    if (confirmation_timeout_sec > 0)
+    {
+        pending_transfer_confirmation_timeout_->start(
+            std::chrono::seconds(confirmation_timeout_sec),
+            [this] {
+                std::lock_guard lock {upload_procedure_mutex_};
+                if (upload_state_ == UploadState::WAITING_FOR_CONFIRMATION)
+                {
+                    upload_state_ = UploadState::IDLE;
+                    current_upload_.clear();
+                }
+            },
+            true);
+    }
+    else
+    {
+        LOG(WARNING)
+            << "Transfer confirmation timeout disabled, there is a very high risk of endless wait. "
+               "Please set a transfer confirmation timeout in the configuration file.";
+    }
+}
+
+void SANDNodeImpl::on_transfer_confirmed(const flows::TransferHandle &transfer_handle)
+{
+    auto current_state = state();
+    if (current_state == State::IDLE || current_state == State::STARTING ||
+        current_state == State::STOPPING)
+    {
+        LOG(INFO) << "Current node state not fit for uploading files: " << to_string(current_state);
+        return;
+    }
+
+    std::lock_guard lock {upload_procedure_mutex_};
+
+    if (upload_state_ != UploadState::WAITING_FOR_CONFIRMATION)
+    {
+        LOG(ERROR) << "Stray on_transfer_confirmed call, wrong upload state: "
+                   << to_string(upload_state_);
+        return;
+    }
+    if (current_upload_ != transfer_handle)
+    {
+        LOG(ERROR) << "Stray on_transfer_confirmed call, unknown transfer handle";
+        return;
+    }
+
+    pending_transfer_confirmation_timeout_->stop();
+
+    if (!file_transfer_flow_->send_file(current_upload_))
+    {
+        LOG(ERROR) << "Cannot send file, abandoning upload procedure";
+        upload_state_ = UploadState::IDLE;
+        current_upload_.clear();
+        return;
+    }
+
+    upload_state_ = UploadState::UPLOADING;
+}
 
 void SANDNodeImpl::on_file_transfer_flow_state_changed(flows::FileTransferFlow::State new_state)
 {
@@ -387,6 +474,15 @@ void SANDNodeImpl::on_file_transfer_flow_state_changed(flows::FileTransferFlow::
 void SANDNodeImpl::on_transfer_progress_changed(
     const flows::TransferHandle &transfer_handle, size_t bytes_transferred, size_t total_bytes)
 {
+    {
+        std::lock_guard lock {upload_procedure_mutex_};
+        if (upload_state_ == UploadState::UPLOADING && transfer_handle == current_upload_)
+        {
+            // Upload progress change, ignore
+            return;
+        }
+    }
+
     {
         std::lock_guard lock {mutex_};
         if (state_ != State::DOWNLOADING)
@@ -401,12 +497,23 @@ void SANDNodeImpl::on_transfer_progress_changed(
             return;
         }
     }
+
     listener_group_.notify(
         &SANDNodeListener::on_transfer_progress_changed, bytes_transferred, total_bytes);
 }
 
 void SANDNodeImpl::on_transfer_completed(const flows::TransferHandle &transfer_handle)
 {
+    {
+        std::lock_guard lock {upload_procedure_mutex_};
+        if (upload_state_ == UploadState::UPLOADING && transfer_handle == current_upload_)
+        {
+            // Upload completed
+            upload_state_ = UploadState::IDLE;
+            current_upload_.clear();
+        }
+    }
+
     {
         std::lock_guard lock {mutex_};
         if (state_ != State::DOWNLOADING)

@@ -25,6 +25,7 @@ public:
         DROP_POINT_TRANSFER_TIMEOUT,
         LIFT_PROXY_REQUEST_TIMEOUT,
         LIFT_PROXY_TRANSFER_TIMEOUT,
+        CONFIRM_TRANSFER_TIMEOUT,
         METADATA_FILE_PATH,
         FILE_STORAGE_PATH,
         MAX_PART_SIZE,
@@ -72,8 +73,8 @@ private:
         "initial_peer_count", "search_propagation_degree", "search_timeout",
         "routing_table_entry_timeout", "recv_file_timeout", "drop_point_request_timeout",
         "drop_point_transfer_timeout", "lift_proxy_request_timeout", "lift_proxy_transfer_timeout",
-        "metadata_file_path", "file_storage_path", "max_part_size", "max_chunk_size",
-        "max_temp_storage_size", "dnl_sync_period"};
+        "confirm_transfer_timeout", "metadata_file_path", "file_storage_path", "max_part_size",
+        "max_chunk_size", "max_temp_storage_size", "dnl_sync_period"};
 };
 }  // namespace sand::config
 
