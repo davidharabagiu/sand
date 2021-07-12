@@ -7,9 +7,15 @@
 #include "sandnodelistener.hpp"
 
 class TestNodeListener : public sand::SANDNodeListener
-{};
+{
+public:
+    void on_transfer_progress_changed(size_t /*bytes_transferred*/, size_t /*total_bytes*/) override
+    {}
+};
 
-int main(int /*argc*/, char **argv)
+int main(int /*argc*/
+    ,
+    char **argv)
 {
     google::InitGoogleLogging(argv[0]);
 

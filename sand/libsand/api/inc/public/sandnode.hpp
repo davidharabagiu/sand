@@ -26,6 +26,9 @@ public:
     bool start();
     bool stop();
 
+    bool download_file(
+        const std::string &file_hash, const std::string &file_name, std::string &error_string);
+
 private:
     std::unique_ptr<SANDNodeImpl> impl_;
 };

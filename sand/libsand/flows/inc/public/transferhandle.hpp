@@ -16,8 +16,7 @@ public:
 
     TransferHandle(TransferHandle &&other) noexcept
         : data_ {std::move(other.data_)}
-    {
-    }
+    {}
 
     TransferHandle &operator=(TransferHandle &&rhs) noexcept
     {
@@ -29,6 +28,26 @@ public:
     [[nodiscard]] std::shared_ptr<TransferHandleImpl>       data();
     [[nodiscard]] std::shared_ptr<const TransferHandleImpl> data() const;
     [[nodiscard]] TransferHandle                            clone() const;
+
+    explicit operator bool() const
+    {
+        return is_valid();
+    }
+
+    bool operator==(const TransferHandle &rhs) const
+    {
+        return data_ == rhs.data_;
+    }
+
+    bool operator!=(const TransferHandle &rhs) const
+    {
+        return !(*this == rhs);
+    }
+
+    void clear()
+    {
+        data_.reset();
+    }
 
 private:
     std::shared_ptr<TransferHandleImpl> data_;

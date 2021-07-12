@@ -9,6 +9,8 @@ class SAND_API SANDNodeListener
 {
 public:
     virtual ~SANDNodeListener() = default;
+
+    virtual void on_transfer_progress_changed(size_t bytes_transferred, size_t total_bytes) = 0;
 };
 }  // namespace sand
 

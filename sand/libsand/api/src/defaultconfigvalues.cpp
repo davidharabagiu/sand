@@ -19,7 +19,7 @@ DefaultConfigValues::DefaultConfigValues(const std::string &app_data_dir_path, b
     : default_values_ {/* PORT */ 7874LL,
           /* KNOWN_DNL_NODES_LIST_PATH */ path_join(app_data_dir_path, "dnl_config.txt"),
           /* IS_DNL_NODE */ is_dnl_node, /* INITIAL_PEER_COUNT */ 10LL,
-          /* SEARCH_PROPAGATION_DEGREE */ 3LL, /* SEARCH_TIMEOUT */ 0LL,
+          /* SEARCH_PROPAGATION_DEGREE */ 3LL, /* SEARCH_TIMEOUT */ 60LL /* = 1 minute */,
           /* ROUTING_TABLE_ENTRY_TIMEOUT */ 0LL, /* RECV_FILE_TIMEOUT */ 0LL,
           /* DROP_POINT_REQUEST_TIMEOUT */ 0LL, /* DROP_POINT_TRANSFER_TIMEOUT */ 0LL,
           /* LIFT_PROXY_REQUEST_TIMEOUT */ 0LL, /* LIFT_PROXY_TRANSFER_TIMEOUT */ 0LL,

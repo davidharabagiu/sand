@@ -16,8 +16,7 @@ public:
 
     SearchHandle(SearchHandle &&other) noexcept
         : data_ {std::move(other.data_)}
-    {
-    }
+    {}
 
     SearchHandle &operator=(SearchHandle &&rhs) noexcept
     {
@@ -29,6 +28,11 @@ public:
     [[nodiscard]] std::shared_ptr<SearchHandleImpl>       data();
     [[nodiscard]] std::shared_ptr<const SearchHandleImpl> data() const;
     [[nodiscard]] SearchHandle                            clone() const;
+
+    explicit operator bool() const
+    {
+        return is_valid();
+    }
 
 private:
     std::shared_ptr<SearchHandleImpl> data_;

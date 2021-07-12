@@ -1,6 +1,8 @@
 #include "sandnodeimpl.hpp"
 
+#include <chrono>
 #include <filesystem>
+#include <sstream>
 #include <utility>
 
 #include <glog/logging.h>
@@ -49,6 +51,7 @@ namespace sand
 {
 SANDNodeImpl::SANDNodeImpl(std::string app_data_dir_path, const std::string &config_file_name)
     : state_ {State::IDLE}
+    , latest_download_succeeded_ {false}
     , app_data_dir_path_ {std::move(app_data_dir_path)}
     , cfg_ {config::JSONConfigLoader {path_join(app_data_dir_path_, config_file_name)},
           std::make_unique<DefaultConfigValues>(app_data_dir_path_, false)}
@@ -156,19 +159,20 @@ bool SANDNodeImpl::start()
             cfg_.get_string(config::ConfigKey::KNOWN_DNL_NODES_LIST_PATH)));
     auto storage_metadata = std::make_shared<storage::FileStorageMetadataImpl>(
         make_file_hash_interpreter(), thread_pool_, cfg_);
-    auto file_storage           = std::make_shared<storage::FileStorageImpl>(storage_metadata);
     auto temporary_data_storage = std::make_shared<storage::TemporaryDataStorageImpl>();
     auto secret_data_interpreter =
         std::make_shared<protocol::SecretDataInterpreterImpl>(rsa, thread_pool_);
     auto aes = std::make_shared<crypto::AESCipherImpl>();
 
+    file_storage_ = std::make_shared<storage::FileStorageImpl>(storage_metadata);
+
     peer_manager_flow_  = std::make_shared<flows::PeerManagerFlowImpl>(protocol_message_handler,
         inbound_request_dispatcher, dnl_config, thread_pool_, io_thread_pool_, cfg_);
     file_locator_flow_  = std::make_unique<flows::FileLocatorFlowImpl>(protocol_message_handler,
-        inbound_request_dispatcher, peer_manager_flow_, file_storage, make_file_hash_interpreter(),
+        inbound_request_dispatcher, peer_manager_flow_, file_storage_, make_file_hash_interpreter(),
         secret_data_interpreter, thread_pool_, io_thread_pool_, public_key, private_key, cfg_);
     file_transfer_flow_ = std::make_unique<flows::FileTransferFlowImpl>(protocol_message_handler,
-        inbound_request_dispatcher, peer_manager_flow_, file_storage, make_file_hash_interpreter(),
+        inbound_request_dispatcher, peer_manager_flow_, file_storage_, make_file_hash_interpreter(),
         temporary_data_storage, aes, thread_pool_, io_thread_pool_, cfg_);
 
     protocol_message_handler->initialize();
@@ -181,13 +185,15 @@ bool SANDNodeImpl::start()
     file_locator_flow_->start();
     file_transfer_flow_->start();
 
-    std::unique_lock lock {mutex_};
-    cv_waiting_for_start_.wait(lock, [this] {
-        return (peer_manager_flow_->state() == flows::PeerManagerFlow::State::ERROR ||
-                   peer_manager_flow_->state() == flows::PeerManagerFlow::State::RUNNING) &&
-               file_locator_flow_->state() == flows::FileLocatorFlow::State::RUNNING &&
-               file_transfer_flow_->state() == flows::FileTransferFlow::State::RUNNING;
-    });
+    {
+        std::unique_lock lock {mutex_};
+        cv_waiting_for_start_.wait(lock, [this] {
+            return (peer_manager_flow_->state() == flows::PeerManagerFlow::State::ERROR ||
+                       peer_manager_flow_->state() == flows::PeerManagerFlow::State::RUNNING) &&
+                   file_locator_flow_->state() == flows::FileLocatorFlow::State::RUNNING &&
+                   file_transfer_flow_->state() == flows::FileTransferFlow::State::RUNNING;
+        });
+    }
 
     if (peer_manager_flow_->state() == flows::PeerManagerFlow::State::ERROR)
     {
@@ -224,12 +230,100 @@ bool SANDNodeImpl::stop()
     peer_manager_flow_listener_.unregister_as_listener(*peer_manager_flow_);
     peer_manager_flow_.reset();
 
+    file_storage_.reset();
     thread_pool_.reset();
     io_thread_pool_.reset();
     tcp_server_io_ctx_.reset();
     tcp_sender_io_ctx_.reset();
 
     set_state(State::IDLE);
+    return true;
+}
+
+std::vector<std::string> SANDNodeImpl::get_peer_list() const
+{
+    return std::vector<std::string>();
+}
+
+std::vector<SANDNodeImpl::ActiveTransferInfo> SANDNodeImpl::get_active_transfers_info() const
+{
+    return std::vector<ActiveTransferInfo>();
+}
+
+bool SANDNodeImpl::download_file(
+    const std::string &file_hash, const std::string &file_name, std::string &error_string)
+{
+    auto current_state = state();
+    if (current_state != State::RUNNING)
+    {
+        std::ostringstream ss;
+        ss << "Cannot start file download from state " << to_string(current_state);
+        error_string = ss.str();
+        return false;
+    }
+
+    if (file_storage_->contains(file_hash))
+    {
+        error_string = "File already in storage";
+        return false;
+    }
+
+    auto search_handle = file_locator_flow_->search(file_hash);
+    if (!search_handle)
+    {
+        error_string = "Cannot perform a search for this file, check the logs for more details "
+                       "about this problem";
+        return false;
+    }
+
+    set_state(State::SEARCHING);
+
+    {
+        auto             pred = [this] { return current_download_.is_valid(); };
+        std::unique_lock lock {mutex_};
+        auto             timeout = cfg_.get_integer(config::ConfigKey::SEARCH_TIMEOUT);
+        if (timeout > 0)
+        {
+            cv_waiting_for_search_.wait_for(lock, std::chrono::seconds {timeout}, pred);
+        }
+        else
+        {
+            LOG(WARNING) << "Search timeout disabled, there is a very high risk of endless wait. "
+                            "Please set a search timeout in the configuration file.";
+            cv_waiting_for_search_.wait(lock, pred);
+        }
+
+        if (!current_download_)
+        {
+            error_string =
+                "Timeout exceeded and the file was not found - you can try your luck again later";
+            return false;
+        }
+
+        if (!file_transfer_flow_->receive_file(current_download_, file_name))
+        {
+            error_string = "Cannot start downloading this file, check the logs for more details "
+                           "about this problem";
+            return false;
+        }
+    }
+
+    set_state(State::DOWNLOADING);
+
+    {
+        std::unique_lock lock {mutex_};
+        cv_waiting_for_download_completion_.wait(lock, [this] { return !current_download_; });
+
+        if (!latest_download_succeeded_)
+        {
+            error_string = std::move(latest_download_error_);
+            return false;
+        }
+        latest_download_succeeded_ = false;
+    }
+
+    set_state(State::RUNNING);
+
     return true;
 }
 
@@ -262,8 +356,19 @@ void SANDNodeImpl::on_file_locator_flow_state_changed(flows::FileLocatorFlow::St
     }
 }
 
-void SANDNodeImpl::on_file_found(const flows::TransferHandle & /*transfer_handle*/)
-{}
+void SANDNodeImpl::on_file_found(const flows::TransferHandle &transfer_handle)
+{
+    {
+        std::lock_guard lock {mutex_};
+        if (state_ != State::SEARCHING)
+        {
+            LOG(ERROR) << "Stray on_file_found callback, wrong state: " << to_string(state_);
+            return;
+        }
+        current_download_ = transfer_handle;
+    }
+    cv_waiting_for_search_.notify_one();
+}
 
 void SANDNodeImpl::on_file_wanted(const flows::SearchHandle & /*transfer_handle*/)
 {}
@@ -279,14 +384,67 @@ void SANDNodeImpl::on_file_transfer_flow_state_changed(flows::FileTransferFlow::
     }
 }
 
-void SANDNodeImpl::on_transfer_progress_changed(const flows::TransferHandle & /*transfer_handle*/,
-    size_t /*bytes_transferred*/, size_t /*total_bytes*/)
-{}
+void SANDNodeImpl::on_transfer_progress_changed(
+    const flows::TransferHandle &transfer_handle, size_t bytes_transferred, size_t total_bytes)
+{
+    {
+        std::lock_guard lock {mutex_};
+        if (state_ != State::DOWNLOADING)
+        {
+            LOG(ERROR) << "Stray on_transfer_progress_changed callback, wrong state: "
+                       << to_string(state_);
+            return;
+        }
+        if (transfer_handle != current_download_)
+        {
+            LOG(ERROR) << "Stray on_transfer_progress_changed callback, unknown transfer handle";
+            return;
+        }
+    }
+    listener_group_.notify(
+        &SANDNodeListener::on_transfer_progress_changed, bytes_transferred, total_bytes);
+}
 
-void SANDNodeImpl::on_transfer_completed(const flows::TransferHandle & /*transfer_handle*/)
-{}
+void SANDNodeImpl::on_transfer_completed(const flows::TransferHandle &transfer_handle)
+{
+    {
+        std::lock_guard lock {mutex_};
+        if (state_ != State::DOWNLOADING)
+        {
+            LOG(ERROR) << "Stray on_transfer_completed callback, wrong state: "
+                       << to_string(state_);
+            return;
+        }
+        if (transfer_handle != current_download_)
+        {
+            LOG(ERROR) << "Stray on_transfer_completed callback, unknown transfer handle";
+            return;
+        }
+        current_download_.clear();
+        latest_download_succeeded_ = true;
+    }
+    cv_waiting_for_download_completion_.notify_one();
+}
 
 void SANDNodeImpl::on_transfer_error(
-    const flows::TransferHandle & /*transfer_handle*/, const std::string & /*error_string*/)
-{}
+    const flows::TransferHandle &transfer_handle, const std::string &error_string)
+{
+    {
+        std::lock_guard lock {mutex_};
+        if (state_ != State::DOWNLOADING)
+        {
+            LOG(ERROR) << "Stray on_transfer_error callback, wrong state: " << to_string(state_);
+            return;
+        }
+        if (transfer_handle != current_download_)
+        {
+            LOG(ERROR) << "Stray on_transfer_error callback, unknown transfer handle";
+            return;
+        }
+        current_download_.clear();
+        latest_download_succeeded_ = false;
+        latest_download_error_     = error_string;
+    }
+    cv_waiting_for_download_completion_.notify_one();
+}
 }  // namespace sand

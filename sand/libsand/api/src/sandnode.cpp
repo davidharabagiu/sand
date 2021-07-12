@@ -39,4 +39,10 @@ bool SANDNode::stop()
 {
     return impl_->stop();
 }
+
+bool SANDNode::download_file(
+    const std::string &file_hash, const std::string &file_name, std::string &error_string)
+{
+    return impl_->download_file(file_hash, file_name, error_string);
+}
 }  // namespace sand

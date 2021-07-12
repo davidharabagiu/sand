@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <boost/asio.hpp>
 
@@ -15,6 +16,7 @@
 #include "listenergroup.hpp"
 #include "peermanagerflowlistenerdelegate.hpp"
 #include "sandnodelistener.hpp"
+#include "transferhandle.hpp"
 
 namespace sand
 {
@@ -25,6 +27,11 @@ class ThreadPool;
 class IOThreadPool;
 }  // namespace utils
 
+namespace storage
+{
+class FileStorage;
+}  // namespace storage
+
 namespace flows
 {
 // Forward declarations
@@ -32,11 +39,23 @@ class PeerManagerFlow;
 class FileLocatorFlow;
 class FileTransferFlow;
 class SearchHandle;
-class TransferHandle;
 }  // namespace flows
 
 class SANDNodeImpl
 {
+public:
+    struct ActiveTransferInfo
+    {
+        std::string peer;
+        size_t      part_size;
+        enum
+        {
+            UPLOADER,
+            DROP_POINT,
+            LIFT_PROXY
+        } role;
+    };
+
 public:
     SANDNodeImpl(std::string app_data_dir_path, const std::string &config_file_name);
     ~SANDNodeImpl();
@@ -44,8 +63,12 @@ public:
     bool register_listener(const std::shared_ptr<SANDNodeListener> &listener);
     bool unregister_listener(const std::shared_ptr<SANDNodeListener> &listener);
 
-    bool start();
-    bool stop();
+    bool                            start();
+    bool                            stop();
+    std::vector<std::string>        get_peer_list() const;
+    std::vector<ActiveTransferInfo> get_active_transfers_info() const;
+    bool                            download_file(
+                                   const std::string &file_hash, const std::string &file_name, std::string &error_string);
 
 private:
     enum class State
@@ -54,7 +77,9 @@ private:
         STARTING,
         RUNNING,
         STOPPING,
-        ERROR
+        ERROR,
+        SEARCHING,
+        DOWNLOADING
     };
 
 private:
@@ -87,6 +112,9 @@ private:
 
 private:
     State                                    state_;
+    flows::TransferHandle                    current_download_;
+    bool                                     latest_download_succeeded_;
+    std::string                              latest_download_error_;
     const std::string                        app_data_dir_path_;
     config::Config                           cfg_;
     utils::ListenerGroup<SANDNodeListener>   listener_group_;
@@ -94,6 +122,7 @@ private:
     std::unique_ptr<boost::asio::io_context> tcp_server_io_ctx_;
     std::shared_ptr<utils::ThreadPool>       thread_pool_;
     std::shared_ptr<utils::IOThreadPool>     io_thread_pool_;
+    std::shared_ptr<storage::FileStorage>    file_storage_;
     std::shared_ptr<flows::PeerManagerFlow>  peer_manager_flow_;
     PeerManagerFlowListenerDelegate          peer_manager_flow_listener_;
     std::unique_ptr<flows::FileLocatorFlow>  file_locator_flow_;
@@ -102,6 +131,8 @@ private:
     FileTransferFlowListenerDelegate         file_transfer_flow_listener_;
     mutable std::mutex                       mutex_;
     std::condition_variable                  cv_waiting_for_start_;
+    std::condition_variable                  cv_waiting_for_search_;
+    std::condition_variable                  cv_waiting_for_download_completion_;
 };
 }  // namespace sand
 
