@@ -10,6 +10,8 @@ namespace sandcli
 {
 struct Command
 {
+    Command() = default;
+
     template<typename ArgsIt,
         typename = std::enable_if_t<std::is_convertible_v<decltype(*ArgsIt {}), std::string>>>
     Command(std::string _cmd, ArgsIt args_begin, ArgsIt args_end)
@@ -30,6 +32,16 @@ struct Command
         cmd  = std::move(rhs.cmd);
         args = std::move(rhs.args);
         return *this;
+    }
+
+    [[nodiscard]] bool valid() const
+    {
+        return !cmd.empty();
+    }
+
+    explicit operator bool() const
+    {
+        return valid();
     }
 
     std::string              cmd;

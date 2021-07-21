@@ -21,9 +21,11 @@ target_include_directories(${TARGET_NAME}
 
 find_library(GTEST_LIB gtest REQUIRED)
 find_library(GMOCK_LIB gmock REQUIRED)
+find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME}
         ${GTEST_LIB}
         ${GMOCK_LIB}
+        ${GLOG_LIB}
         pthread
         network
         protocol
