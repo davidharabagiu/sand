@@ -16,6 +16,9 @@ else()
     message(SEND_ERROR "Unsupported OS ${CMAKE_SYSTEM_NAME}")
 endif()
 
+target_include_directories(${TARGET_NAME}
+        PRIVATE "inc")
+
 find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME} sand ${GLOG_LIB})
 
