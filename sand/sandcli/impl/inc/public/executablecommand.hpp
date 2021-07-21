@@ -12,7 +12,7 @@ namespace sandcli
 class ExecutableCommand
 {
 public:
-    virtual ~ExecutableCommand() = 0;
+    virtual ~ExecutableCommand() = default;
 
     virtual void execute(sand::SANDNode &sand_node) const = 0;
 };

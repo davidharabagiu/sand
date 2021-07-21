@@ -12,6 +12,10 @@ struct Command
 {
     Command() = default;
 
+    explicit Command(std::string _cmd)
+        : cmd {std::move(_cmd)}
+    {}
+
     template<typename ArgsIt,
         typename = std::enable_if_t<std::is_convertible_v<decltype(*ArgsIt {}), std::string>>>
     Command(std::string _cmd, ArgsIt args_begin, ArgsIt args_end)
