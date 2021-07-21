@@ -64,12 +64,10 @@ public:
     bool register_listener(const std::shared_ptr<SANDNodeListener> &listener);
     bool unregister_listener(const std::shared_ptr<SANDNodeListener> &listener);
 
-    bool                            start();
-    bool                            stop();
-    std::vector<std::string>        get_peer_list() const;
-    std::vector<ActiveTransferInfo> get_active_transfers_info() const;
-    bool                            download_file(
-                                   const std::string &file_hash, const std::string &file_name, std::string &error_string);
+    bool start();
+    bool stop();
+    bool download_file(
+        const std::string &file_hash, const std::string &file_name, std::string &error_string);
 
 private:
     enum class State

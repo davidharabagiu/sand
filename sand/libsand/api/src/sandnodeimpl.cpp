@@ -264,16 +264,6 @@ bool SANDNodeImpl::stop()
     return true;
 }
 
-std::vector<std::string> SANDNodeImpl::get_peer_list() const
-{
-    return std::vector<std::string>();
-}
-
-std::vector<SANDNodeImpl::ActiveTransferInfo> SANDNodeImpl::get_active_transfers_info() const
-{
-    return std::vector<ActiveTransferInfo>();
-}
-
 bool SANDNodeImpl::download_file(
     const std::string &file_hash, const std::string &file_name, std::string &error_string)
 {
