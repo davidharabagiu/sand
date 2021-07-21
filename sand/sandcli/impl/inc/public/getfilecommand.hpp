@@ -1,0 +1,22 @@
+#ifndef SANDCLI_GETFILECOMMAND_HPP_
+#define SANDCLI_GETFILECOMMAND_HPP_
+
+#include <string>
+
+#include "executablecommand.hpp"
+
+namespace sandcli
+{
+class GetFileCommand : public ExecutableCommand
+{
+public:
+    GetFileCommand(std::string file_hash, std::string file_name);
+    void execute(sand::SANDNode &sand_node) const override;
+
+private:
+    std::string file_hash_;
+    std::string file_name_;
+};
+}  // namespace sandcli
+
+#endif  // SANDCLI_GETFILECOMMAND_HPP_
