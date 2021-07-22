@@ -44,4 +44,9 @@ std::unique_ptr<ExecutableCommand> CommandInterpreter::interpret(
         return nullptr;
     }
 }
+
+std::unique_ptr<ExecutableCommand> CommandInterpreter::make_exit_command() const
+{
+    return std::make_unique<ExitCommand>();
+}
 }  // namespace sandcli

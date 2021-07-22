@@ -1,6 +1,8 @@
 #ifndef SANDCLI_EXECUTABLECOMMAND_HPP_
 #define SANDCLI_EXECUTABLECOMMAND_HPP_
 
+#include <string>
+
 namespace sand
 {
 // Forward declarations
@@ -14,7 +16,9 @@ class ExecutableCommand
 public:
     virtual ~ExecutableCommand() = default;
 
-    virtual void execute(sand::SANDNode &sand_node) const = 0;
+    [[nodiscard]] virtual bool execute(
+        sand::SANDNode &sand_node, std::string &error_message) const            = 0;
+    [[nodiscard]] virtual bool should_terminate_program_after_execution() const = 0;
 };
 }  // namespace sandcli
 

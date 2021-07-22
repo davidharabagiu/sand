@@ -10,7 +10,9 @@ namespace sandcli
 class ExitCommand : public ExecutableCommand
 {
 public:
-    void execute(sand::SANDNode &sand_node) const override;
+    [[nodiscard]] bool execute(
+        sand::SANDNode &sand_node, std::string &error_message) const override;
+    [[nodiscard]] bool should_terminate_program_after_execution() const override;
 };
 }  // namespace sandcli
 

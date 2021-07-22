@@ -12,7 +12,9 @@ namespace sandcli
 class CommandInterpreter
 {
 public:
-    std::unique_ptr<ExecutableCommand> interpret(const Command &command, std::string &err) const;
+    [[nodiscard]] std::unique_ptr<ExecutableCommand> interpret(
+        const Command &command, std::string &err) const;
+    [[nodiscard]] std::unique_ptr<ExecutableCommand> make_exit_command() const;
 };
 }  // namespace sandcli
 
