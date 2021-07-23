@@ -15,6 +15,9 @@ file(READ "config.json" CONFIG_FILE_CONTENT)
 string(REPLACE "\n" "\\n" CONFIG_FILE_CONTENT ${CONFIG_FILE_CONTENT})
 string(REPLACE "\"" "\\\"" CONFIG_FILE_CONTENT ${CONFIG_FILE_CONTENT})
 
+file(READ "../dnl_node_list.txt" DNL_LIST_FILE_CONTENT)
+string(REPLACE "\n" "\\n" DNL_LIST_FILE_CONTENT ${DNL_LIST_FILE_CONTENT})
+
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
 include(${SAND_CMAKE_SCRIPTS_DIR}/check_asan.cmake REQUIRED)
 
@@ -24,7 +27,9 @@ target_compile_definitions(${TARGET_NAME}
         PRIVATE SANDCLI_VERSION="${VERSION}"
         PRIVATE PROGRAM_AUTHOR="${AUTHOR}"
         PRIVATE PROGRAM_LICENSE="${LICENSE}"
-        PRIVATE SAND_CONFIGURATION="${CONFIG_FILE_CONTENT}")
+        PRIVATE SAND_CONFIGURATION="${CONFIG_FILE_CONTENT}"
+        PRIVATE DNL_NODE_LIST_FILE="dnl_node_list.txt"
+        PRIVATE DNL_NODE_LIST="${DNL_LIST_FILE_CONTENT}")
 
 find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME}

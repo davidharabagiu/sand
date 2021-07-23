@@ -25,6 +25,25 @@ std::string get_app_data_dir()
 #endif
 }
 
+bool write_file_if_not_exists(const std::string &path, const std::string &content)
+{
+    if (!std::filesystem::is_regular_file(path))
+    {
+        // If there is a file which is not regular and with the same name, delete it
+        std::filesystem::remove_all(path);
+
+        // Write default configuration to config.json
+        std::ofstream fs {path};
+        if (!fs)
+        {
+            std::cout << "Cannot open " << path << " for writing\n ";
+            return false;
+        }
+        fs << content;
+    }
+    return true;
+}
+
 class NetworkActivityPrinter : public sand::SANDDNLNodeListener
 {
 public:
@@ -66,20 +85,16 @@ int main(int /*argc*/, char **argv)
         }
     }
 
-    std::string config_file_path {std::filesystem::path {app_data_dir} / config_file_name};
-    if (!std::filesystem::is_regular_file(config_file_path))
+    if (!write_file_if_not_exists(
+            std::filesystem::path {app_data_dir} / config_file_name, SAND_CONFIGURATION))
     {
-        // If there is a file which is not regular and with the same name, delete it
-        std::filesystem::remove_all(config_file_path);
+        return EXIT_FAILURE;
+    }
 
-        // Write default configuration to dnl_node_config.json
-        std::ofstream fs {config_file_path};
-        if (!fs)
-        {
-            std::cout << "Cannot open " << config_file_path << " for reading\n ";
-            return EXIT_FAILURE;
-        }
-        fs << SAND_CONFIGURATION;
+    if (!write_file_if_not_exists(
+            std::filesystem::path {app_data_dir} / DNL_NODE_LIST_FILE, DNL_NODE_LIST))
+    {
+        return EXIT_FAILURE;
     }
 
     sand::SANDDNLNode node {get_app_data_dir(), config_file_name};
