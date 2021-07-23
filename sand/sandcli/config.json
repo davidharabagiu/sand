@@ -4,7 +4,7 @@
   },
   "dnl": {
     "is_dnl_node": false,
-    "known_dnl_nodes_list_file": "dnl_nodes.txt"
+    "known_dnl_nodes_list_file": "dnl_node_list.txt"
   },
   "peer_discovery": {
     "initial_peer_count": 10

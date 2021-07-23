@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.17)
+
+set(VERSION 0.9)
+set(AUTHOR "David Harabagiu")
+set(LICENSE "This program and the SAND library are released under the GNU General Public License v3.0 or later")
+
+project(dnlapp)
+
+set(TARGET_NAME dnlapp)
+
+file(READ "config.json" CONFIG_FILE_CONTENT)
+string(REPLACE "\n" "\\n" CONFIG_FILE_CONTENT ${CONFIG_FILE_CONTENT})
+string(REPLACE "\"" "\\\"" CONFIG_FILE_CONTENT ${CONFIG_FILE_CONTENT})
+
+include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
+include(${SAND_CMAKE_SCRIPTS_DIR}/check_asan.cmake REQUIRED)
+
+add_executable(${TARGET_NAME} main.cpp)
+
+target_compile_definitions(${TARGET_NAME}
+        PRIVATE DNLAPP_VERSION="${VERSION}"
+        PRIVATE PROGRAM_AUTHOR="${AUTHOR}"
+        PRIVATE PROGRAM_LICENSE="${LICENSE}"
+        PRIVATE SAND_CONFIGURATION="${CONFIG_FILE_CONTENT}")
+
+find_library(GLOG_LIB glog REQUIRED)
+target_link_libraries(${TARGET_NAME}
+        ${GLOG_LIB}
+        sand)
+
+install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)

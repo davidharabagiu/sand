@@ -7,3 +7,4 @@ option(ENABLE_ASAN "Enable address sanitizer" OFF)
 
 add_subdirectory(libsand)
 add_subdirectory(sandcli)
+add_subdirectory(dnlapp)

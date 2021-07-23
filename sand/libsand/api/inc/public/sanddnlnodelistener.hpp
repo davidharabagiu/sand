@@ -8,8 +8,8 @@ class SANDDNLNodeListener
 public:
     virtual ~SANDDNLNodeListener() = default;
 
-    virtual void on_node_connected(const std::string &node_address)     = 0;
-    virtual void on_node_disconnected(const std::string &&node_address) = 0;
+    virtual void on_node_connected(const std::string &node_address)    = 0;
+    virtual void on_node_disconnected(const std::string &node_address) = 0;
 };
 }  // namespace sand
 
