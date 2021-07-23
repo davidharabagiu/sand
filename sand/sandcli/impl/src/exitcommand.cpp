@@ -8,7 +8,7 @@ namespace sandcli
 {
 bool ExitCommand::execute(sand::SANDNode &sand_node, std::string &error_message) const
 {
-    std::cout << "Stopping node...\n";
+    std::cout << "\nStopping node...\n";
     bool status = sand_node.stop();
     if (!status)
     {

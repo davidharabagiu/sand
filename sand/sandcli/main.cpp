@@ -102,6 +102,8 @@ int main(int /*argc*/, char **argv)
     sandcli::CommandReader      cmd_reader {std::cin};
     sandcli::CommandInterpreter cmd_interpreter;
 
+    int exit_status = EXIT_SUCCESS;
+
     for (;;)
     {
         std::cout << "> ";
@@ -117,16 +119,21 @@ int main(int /*argc*/, char **argv)
             continue;
         }
 
-        if (!exec_cmd->execute(node, error_message))
+        bool exec_success;
+        if (!(exec_success = exec_cmd->execute(node, error_message)))
         {
             std::cout << error_message << '\n';
         }
 
         if (exec_cmd->should_terminate_program_after_execution())
         {
+            if (!exec_success)
+            {
+                exit_status = EXIT_FAILURE;
+            }
             break;
         }
     }
 
-    return EXIT_SUCCESS;
+    return exit_status;
 }

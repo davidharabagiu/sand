@@ -107,10 +107,16 @@ int main(int /*argc*/, char **argv)
         std::cout << "Failed to start node, check the log file for details.\n";
         return EXIT_FAILURE;
     }
-    std::cout << '\n';
+    std::cout << "All good!\n\n";
 
-    for (;;)
+    while (std::getchar() != EOF)
+        ;
+
+    std::cout << "\nStopping node...\n";
+    if (!node.stop())
     {
+        std::cout << "Internal error: cleanup failed\n";
+        return EXIT_FAILURE;
     }
 
     return EXIT_SUCCESS;
