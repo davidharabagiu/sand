@@ -26,7 +26,7 @@ protected:
             {
                 return initial_peer_count_;
             }
-            else if (key == ConfigKey::FILE_STORAGE_PATH)
+            else if (key == ConfigKey::FILE_STORAGE_DIR)
             {
                 return std::string {file_storage_path_};
             }
@@ -51,7 +51,7 @@ protected:
     public:
         [[nodiscard]] std::any get(const ConfigKey &key) const override
         {
-            if (key == ConfigKey::FILE_STORAGE_PATH)
+            if (key == ConfigKey::FILE_STORAGE_DIR)
             {
                 return {5};
             }
@@ -64,11 +64,11 @@ protected:
         ON_CALL(config_loader_, load())
             .WillByDefault(Return(std::map<std::string, std::any> {
                 {ConfigKey(ConfigKey::PORT).to_string(), network_port_},
-                {ConfigKey(ConfigKey::KNOWN_DNL_NODES_LIST_PATH).to_string(),
+                {ConfigKey(ConfigKey::KNOWN_DNL_NODES_LIST_FILE).to_string(),
                     known_dnl_nodes_list_path_},
                 {ConfigKey(ConfigKey::IS_DNL_NODE).to_string(), is_dnl_node_},
                 {ConfigKey(ConfigKey::SEARCH_TIMEOUT).to_string(), search_timeout_},
-                {ConfigKey(ConfigKey::FILE_STORAGE_PATH).to_string(), file_storage_path_}}));
+                {ConfigKey(ConfigKey::FILE_STORAGE_DIR).to_string(), file_storage_path_}}));
     }
 
     NiceMock<ConfigLoaderMock> config_loader_;
@@ -90,7 +90,7 @@ TEST_F(ConfigTest, GetInt)
 TEST_F(ConfigTest, GetString)
 {
     Config conf {config_loader_};
-    EXPECT_EQ(conf.get_string(ConfigKey::KNOWN_DNL_NODES_LIST_PATH), known_dnl_nodes_list_path_);
+    EXPECT_EQ(conf.get_string(ConfigKey::KNOWN_DNL_NODES_LIST_FILE), known_dnl_nodes_list_path_);
 }
 
 TEST_F(ConfigTest, GetBool)
@@ -127,24 +127,24 @@ TEST_F(ConfigTest, GetMissingValue_MissingInFallback)
 TEST_F(ConfigTest, GetValue_WrongType)
 {
     Config conf {config_loader_, std::make_unique<GoodFallbackValueProviderMock>()};
-    EXPECT_EQ(conf.get_string(ConfigKey::FILE_STORAGE_PATH),
+    EXPECT_EQ(conf.get_string(ConfigKey::FILE_STORAGE_DIR),
         GoodFallbackValueProviderMock::file_storage_path_);
 }
 
 TEST_F(ConfigTest, GetValue_WrongType_NoFallback)
 {
     Config conf {config_loader_};
-    EXPECT_DEATH(UNUSED(conf.get_string(ConfigKey::FILE_STORAGE_PATH)), "");
+    EXPECT_DEATH(UNUSED(conf.get_string(ConfigKey::FILE_STORAGE_DIR)), "");
 }
 
 TEST_F(ConfigTest, GetValue_WrongType_MissingInFallback)
 {
     Config conf {config_loader_, std::make_unique<BadFallbackValueProviderMock>()};
-    EXPECT_DEATH(UNUSED(conf.get_string(ConfigKey::FILE_STORAGE_PATH)), "");
+    EXPECT_DEATH(UNUSED(conf.get_string(ConfigKey::FILE_STORAGE_DIR)), "");
 }
 
 TEST_F(ConfigTest, GetValue_WrongType_WrongTypeInCallback)
 {
     Config conf {config_loader_, std::make_unique<BadFallbackValueProviderMock2>()};
-    EXPECT_DEATH(UNUSED(conf.get_string(ConfigKey::FILE_STORAGE_PATH)), "");
+    EXPECT_DEATH(UNUSED(conf.get_string(ConfigKey::FILE_STORAGE_DIR)), "");
 }

@@ -3,11 +3,11 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <utility>
 
 #include <glog/logging.h>
 #include <nlohmann/json.hpp>
 
-#include "config.hpp"
 #include "defer.hpp"
 #include "executer.hpp"
 #include "filehashinterpreter.hpp"
@@ -19,11 +19,12 @@ namespace sand::storage
 {
 FileStorageMetadataImpl::FileStorageMetadataImpl(
     std::unique_ptr<FileHashInterpreter> file_hash_interpreter,
-    std::shared_ptr<utils::Executer> hash_compute_executer, const config::Config &cfg)
+    std::shared_ptr<utils::Executer> hash_compute_executer, std::string metadata_file_path,
+    std::string storage_path)
     : file_hash_interpreter_ {std::move(file_hash_interpreter)}
     , hash_compute_executer_ {std::move(hash_compute_executer)}
-    , metadata_file_path_ {cfg.get_string(config::ConfigKey::METADATA_FILE_PATH)}
-    , storage_root_path_ {cfg.get_string(config::ConfigKey::FILE_STORAGE_PATH)}
+    , metadata_file_path_ {std::move(metadata_file_path)}
+    , storage_path_ {std::move(storage_path)}
 {
     parse_metadata_file();
     add_missing_files();
@@ -161,7 +162,7 @@ void FileStorageMetadataImpl::add_missing_files()
     std::map<std::string, std::future<bool>> hashing_job_results;
     std::map<std::string, protocol::AHash>   computed_hashes;
 
-    for (const auto &e : std::filesystem::directory_iterator {storage_root_path_})
+    for (const auto &e : std::filesystem::directory_iterator {storage_path_})
     {
         if (file_name_set_.count(e.path().filename()) == 0)
         {
@@ -186,7 +187,7 @@ void FileStorageMetadataImpl::add_missing_files()
 
 std::string FileStorageMetadataImpl::full_file_path(const std::string &file_name) const
 {
-    return std::filesystem::path {storage_root_path_} / file_name;
+    return std::filesystem::path {storage_path_} / file_name;
 }
 
 bool FileStorageMetadataImpl::contains_internal(const std::string &file_hash) const

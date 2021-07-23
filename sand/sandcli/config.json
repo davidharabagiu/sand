@@ -1,0 +1,32 @@
+{
+  "network": {
+    "port": 12289
+  },
+  "dnl": {
+    "is_dnl_node": false,
+    "known_dnl_nodes_list_file": "dnl_nodes.txt"
+  },
+  "peer_discovery": {
+    "initial_peer_count": 10
+  },
+  "search": {
+    "search_propagation_degree": 3,
+    "search_timeout": 60,
+    "routing_table_entry_timeout": 60
+  },
+  "transfer": {
+    "recv_file_timeout": 60,
+    "drop_point_request_timeout": 60,
+    "drop_point_transfer_timeout": 60,
+    "lift_proxy_request_timeout": 60,
+    "lift_proxy_transfer_timeout": 60,
+    "confirm_transfer_timeout": 60,
+    "max_part_size": 134217728,
+    "max_chunk_size": 4194304
+  },
+  "storage": {
+    "metadata_file": "storage_metadata.json",
+    "file_storage_dir": "storage",
+    "max_temp_storage_size": 1073741824
+  }
+}

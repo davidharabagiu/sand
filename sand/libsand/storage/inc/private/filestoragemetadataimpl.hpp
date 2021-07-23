@@ -15,12 +15,6 @@ namespace sand::utils
 class Executer;
 }  // namespace sand::utils
 
-namespace sand::config
-{
-// Forward declarations
-class Config;
-}  // namespace sand::config
-
 namespace sand::storage
 {
 // Forward declarations
@@ -30,7 +24,8 @@ class FileStorageMetadataImpl : public FileStorageMetadata
 {
 public:
     FileStorageMetadataImpl(std::unique_ptr<FileHashInterpreter> file_hash_interpreter,
-        std::shared_ptr<utils::Executer> hash_compute_executer, const config::Config &cfg);
+        std::shared_ptr<utils::Executer> hash_compute_executer, std::string metadata_file_path,
+        std::string storage_path);
     ~FileStorageMetadataImpl() override;
 
     [[nodiscard]] bool        contains(const std::string &file_hash) const override;
@@ -49,7 +44,7 @@ private:
     const std::unique_ptr<FileHashInterpreter> file_hash_interpreter_;
     const std::shared_ptr<utils::Executer>     hash_compute_executer_;
     const std::string                          metadata_file_path_;
-    const std::string                          storage_root_path_;
+    const std::string                          storage_path_;
     std::map<std::string, std::string>         hash_to_name_map_;
     std::set<std::string>                      file_name_set_;
     mutable std::mutex                         mutex_;

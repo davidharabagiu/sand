@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.17)
 
+set(VERSION 0.9)
+set(AUTHOR "David Harabagiu")
+set(LICENSE "This program and the SAND library are released under the GNU General Public License v3.0 or later")
+
 add_subdirectory(impl)
 add_subdirectory(test)
 
@@ -7,17 +11,20 @@ project(sandcli)
 
 set(TARGET_NAME sandc)
 
+file(READ "config.json" CONFIG_FILE_CONTENT)
+string(REPLACE "\n" "\\n" CONFIG_FILE_CONTENT ${CONFIG_FILE_CONTENT})
+string(REPLACE "\"" "\\\"" CONFIG_FILE_CONTENT ${CONFIG_FILE_CONTENT})
+
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
 include(${SAND_CMAKE_SCRIPTS_DIR}/check_asan.cmake REQUIRED)
 
 add_executable(${TARGET_NAME} main.cpp)
 
-if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
-    target_compile_definitions(${TARGET_NAME}
-            PRIVATE APP_DATA_DIR="$ENV{HOME}/.sand")
-else()
-    message(SEND_ERROR "Unsupported OS ${CMAKE_SYSTEM_NAME}")
-endif()
+target_compile_definitions(${TARGET_NAME}
+        PRIVATE SANDCLI_VERSION="${VERSION}"
+        PRIVATE PROGRAM_AUTHOR="${AUTHOR}"
+        PRIVATE PROGRAM_LICENSE="${LICENSE}"
+        PRIVATE SAND_CONFIGURATION="${CONFIG_FILE_CONTENT}")
 
 find_library(GLOG_LIB glog REQUIRED)
 target_link_libraries(${TARGET_NAME}

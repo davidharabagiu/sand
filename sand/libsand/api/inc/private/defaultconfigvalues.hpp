@@ -11,7 +11,7 @@ namespace sand
 class DefaultConfigValues : public config::FallbackConfigValueProvider
 {
 public:
-    DefaultConfigValues(const std::string &app_data_dir_path, bool is_dnl_node);
+    explicit DefaultConfigValues(bool is_dnl_node);
     [[nodiscard]] std::any get(const config::ConfigKey &key) const override;
 
 private:

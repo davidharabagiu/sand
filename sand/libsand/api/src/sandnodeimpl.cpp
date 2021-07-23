@@ -56,7 +56,7 @@ SANDNodeImpl::SANDNodeImpl(std::string app_data_dir_path, const std::string &con
     , latest_download_succeeded_ {false}
     , app_data_dir_path_ {std::move(app_data_dir_path)}
     , cfg_ {config::JSONConfigLoader {path_join(app_data_dir_path_, config_file_name)},
-          std::make_unique<DefaultConfigValues>(app_data_dir_path_, false)}
+          std::make_unique<DefaultConfigValues>(false)}
 {
     peer_manager_flow_listener_.set_on_state_changed_cb(
         [this](auto &&a1) { on_peer_manager_flow_state_changed(std::forward<decltype(a1)>(a1)); });
@@ -111,7 +111,7 @@ bool SANDNodeImpl::start()
     set_state(State::STARTING);
 
     auto storage_dir =
-        path_join(app_data_dir_path_, cfg_.get_string(config::ConfigKey::FILE_STORAGE_PATH));
+        path_join(app_data_dir_path_, cfg_.get_string(config::ConfigKey::FILE_STORAGE_DIR));
     if (!std::filesystem::exists(storage_dir))
     {
         std::error_code ec;
@@ -158,11 +158,13 @@ bool SANDNodeImpl::start()
         tcp_sender, tcp_server, message_serializer, io_thread_pool_, cfg_);
     auto inbound_request_dispatcher =
         std::make_shared<flows::InboundRequestDispatcher>(protocol_message_handler);
-    auto dnl_config =
-        std::make_shared<config::DNLConfig>(std::make_unique<config::TextFileDNLConfigLoader>(
-            cfg_.get_string(config::ConfigKey::KNOWN_DNL_NODES_LIST_PATH)));
+    auto dnl_config = std::make_shared<config::DNLConfig>(
+        std::make_unique<config::TextFileDNLConfigLoader>(path_join(
+            app_data_dir_path_, cfg_.get_string(config::ConfigKey::KNOWN_DNL_NODES_LIST_FILE))));
     auto storage_metadata = std::make_shared<storage::FileStorageMetadataImpl>(
-        make_file_hash_interpreter(), thread_pool_, cfg_);
+        make_file_hash_interpreter(), thread_pool_,
+        path_join(app_data_dir_path_, cfg_.get_string(config::ConfigKey::METADATA_FILE)),
+        storage_dir);
     auto temporary_data_storage = std::make_shared<storage::TemporaryDataStorageImpl>();
     auto secret_data_interpreter =
         std::make_shared<protocol::SecretDataInterpreterImpl>(rsa, thread_pool_);

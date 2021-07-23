@@ -1,3 +1,6 @@
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 
@@ -6,36 +9,77 @@
 #include "commandinterpreter.hpp"
 #include "commandreader.hpp"
 #include "sandnode.hpp"
-#include "sandnodelistener.hpp"
+#include "sandversion.hpp"
+#include "transferprogressprinter.hpp"
 
 namespace
 {
-constexpr char const *config_file_name = "config.json";
+constexpr char const *config_file_name                   = "config.json";
+constexpr int         transfer_progress_print_timeout_ms = 1000;
 
-class TransferProgressListener : public sand::SANDNodeListener
+std::string get_app_data_dir()
 {
-public:
-    void on_transfer_progress_changed(size_t bytes_transferred, size_t total_bytes) override
-    {
-        (void) bytes_transferred;
-        (void) total_bytes;
-    }
-};
+#if defined(linux)
+    return std::filesystem::path {std::getenv("HOME")} / ".sand";
+#elif defined(_WIN32)
+    return std::filesystem::path {std::getenv("APPDATA")} / "sand";
+#else
+#error "Unsupported OS"
+#endif
+}
 }  // namespace
 
 int main(int /*argc*/, char **argv)
 {
     google::InitGoogleLogging(argv[0]);
 
-    sand::SANDNode node {APP_DATA_DIR, config_file_name};
-    auto           node_listener = std::make_shared<TransferProgressListener>();
-    node.register_listener(node_listener);
+    std::cout << "SAND command line utility " << SANDCLI_VERSION << " (lib version "
+              << sand::sand_version << ")\n";
+    std::cout << "Author: " << PROGRAM_AUTHOR << '\n';
+    std::cout << PROGRAM_LICENSE << "\n\n";
 
+    std::string app_data_dir {get_app_data_dir()};
+
+    if (!std::filesystem::is_directory(app_data_dir))
+    {
+        // If there is a regular file with the same name, delete it
+        std::filesystem::remove(app_data_dir);
+
+        std::error_code ec;
+        std::filesystem::create_directories(app_data_dir, ec);
+        if (ec)
+        {
+            std::cout << "Error while creating app data directory " << app_data_dir << ": "
+                      << ec.message() << "\n";
+            return EXIT_FAILURE;
+        }
+
+        // Write default configuration to config.json
+        std::string   config_file_path {std::filesystem::path {app_data_dir} / config_file_name};
+        std::ofstream fs {config_file_path};
+        if (!fs)
+        {
+            std::cout << "Cannot open " << config_file_path << " for reading\n ";
+            return EXIT_FAILURE;
+        }
+        fs << SAND_CONFIGURATION;
+    }
+
+    std::cout << SAND_CONFIGURATION << "\n";
+    return 0;
+
+    sand::SANDNode node {get_app_data_dir(), config_file_name};
+    auto           progress_printer = std::make_shared<sandcli::TransferProgressPrinter>(
+        std::cout, transfer_progress_print_timeout_ms);
+    node.register_listener(progress_printer);
+
+    std::cout << "Starting node...\n";
     if (!node.start())
     {
         std::cout << "Failed to start node, check the log file for details.\n";
-        return 0;
+        return EXIT_FAILURE;
     }
+    std::cout << '\n';
 
     sandcli::CommandReader      cmd_reader {std::cin};
     sandcli::CommandInterpreter cmd_interpreter;
@@ -66,5 +110,5 @@ int main(int /*argc*/, char **argv)
         }
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

@@ -37,7 +37,7 @@ target_link_libraries(${TARGET_NAME}
 add_custom_target(${RES_TARGET_NAME} ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_CURRENT_SOURCE_DIR}/res/
-        ${CMAKE_CURRENT_BINARY_DIR}/test)
+        ${CMAKE_CURRENT_BINARY_DIR})
 
 install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX}/test)
 install(DIRECTORY res/ DESTINATION ${CMAKE_INSTALL_PREFIX}/test)

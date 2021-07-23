@@ -12,7 +12,7 @@ set_target_properties(${TARGET_NAME} PROPERTIES
         SOVERSION ${VERSION})
 target_compile_definitions(${TARGET_NAME}
         PRIVATE SAND_BUILD_SHARED_LIB
-        PUBLIC SAND_VERSION=${VERSION})
+        PUBLIC SAND_VERSION="${VERSION}")
 target_include_directories(${TARGET_NAME}
         PUBLIC "inc/public"
         PRIVATE "inc/private"

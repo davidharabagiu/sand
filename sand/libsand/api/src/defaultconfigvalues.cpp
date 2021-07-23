@@ -1,23 +1,14 @@
 #include "defaultconfigvalues.hpp"
 
-#include <filesystem>
 #include <string>
 
 #include <glog/logging.h>
 
-namespace
-{
-std::string path_join(const std::string &directory, const std::string &file_name)
-{
-    return (std::filesystem::path {directory} / file_name).string();
-}
-}  // namespace
-
 namespace sand
 {
-DefaultConfigValues::DefaultConfigValues(const std::string &app_data_dir_path, bool is_dnl_node)
-    : default_values_ {/* PORT */ 7874LL,
-          /* KNOWN_DNL_NODES_LIST_PATH */ path_join(app_data_dir_path, "dnl_config.txt"),
+DefaultConfigValues::DefaultConfigValues(bool is_dnl_node)
+    : default_values_ {/* PORT */ 12289LL,
+          /* KNOWN_DNL_NODES_LIST_FILE */ std::string {"dnl_config.txt"},
           /* IS_DNL_NODE */ is_dnl_node, /* INITIAL_PEER_COUNT */ 10LL,
           /* SEARCH_PROPAGATION_DEGREE */ 3LL, /* SEARCH_TIMEOUT */ 60LL /* = 1 minute */,
           /* ROUTING_TABLE_ENTRY_TIMEOUT */ 60LL /* = 1 minute */,
@@ -27,8 +18,8 @@ DefaultConfigValues::DefaultConfigValues(const std::string &app_data_dir_path, b
           /* LIFT_PROXY_REQUEST_TIMEOUT */ 60LL /* = 1 minute */,
           /* LIFT_PROXY_TRANSFER_TIMEOUT */ 60LL /* = 1 minute */,
           /* CONFIRM_TRANSFER_TIMEOUT */ 60LL /* = 1 minute */,
-          /* METADATA_FILE_PATH */ path_join(app_data_dir_path, "storage_metadata.json"),
-          /* FILE_STORAGE_PATH */ path_join(app_data_dir_path, "storage"),
+          /* METADATA_FILE */ std::string {"storage_metadata.json"},
+          /* FILE_STORAGE_DIR */ std::string {"storage"},
           /* MAX_PART_SIZE */ 128LL * 1024 * 1024 /* = 128 MiB */,
           /* MAX_CHUNK_SIZE */ 4LL * 1024 * 1024 /* = 4 MiB */,
           /* MAX_TEMP_STORAGE_SIZE */ 1LL * 1024 * 1024 * 1024 /* = 1 GiB */,
