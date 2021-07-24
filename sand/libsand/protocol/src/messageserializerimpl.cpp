@@ -119,6 +119,8 @@ InputIt deserialize_payload(SearchMessage &message, InputIt src_begin, InputIt s
     std::copy_n(src_begin, message.file_hash.size(), message.file_hash.begin());
     std::advance(src_begin, message.file_hash.size());
 
+    src_begin = serialization::deserialize_field(message.time_to_live, src_begin, src_end, ok);
+
     return src_begin;
 }
 
@@ -405,7 +407,8 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const SearchMessage &messa
 
     std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
                              sizeof(message.search_id) + sizeof(PubKeyLenT) +
-                             message.sender_public_key.size() + sizeof(message.file_hash));
+                             message.sender_public_key.size() + sizeof(message.file_hash) +
+                             sizeof(message.time_to_live));
 
     auto dest = out.begin();
     dest      = serialization::serialize_field(message.message_code, dest);
@@ -413,7 +416,8 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const SearchMessage &messa
     dest      = serialization::serialize_field(message.search_id, dest);
     dest      = serialization::serialize_field(PubKeyLenT(message.sender_public_key.size()), dest);
     dest = std::copy(message.sender_public_key.cbegin(), message.sender_public_key.cend(), dest);
-    std::copy(message.file_hash.cbegin(), message.file_hash.cend(), dest);
+    dest = std::copy(message.file_hash.cbegin(), message.file_hash.cend(), dest);
+    serialization::serialize_field(message.time_to_live, dest);
 
     return out;
 }

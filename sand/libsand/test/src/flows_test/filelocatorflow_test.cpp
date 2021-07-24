@@ -48,7 +48,7 @@ protected:
         listener_                = std::make_shared<NiceMock<FileLocatorFlowListenerMock>>();
     }
 
-    std::unique_ptr<FileLocatorFlow> make_flow(
+    std::unique_ptr<FileLocatorFlow> make_flow(uint8_t search_message_ttl = 3,
         int search_timeout_sec = 0, int routing_table_entry_expiration_time_sec = 0)
     {
         ON_CALL(config_loader_, load())
@@ -57,6 +57,8 @@ protected:
                     (long long) {search_propagation_degree_}},
                 {ConfigKey(ConfigKey::SEARCH_TIMEOUT).to_string(),
                     (long long) {search_timeout_sec}},
+                {ConfigKey(ConfigKey::SEARCH_MESSAGE_TTL).to_string(),
+                    (long long) {search_message_ttl}},
                 {ConfigKey(ConfigKey::ROUTING_TABLE_ENTRY_TIMEOUT).to_string(),
                     (long long) {routing_table_entry_expiration_time_sec}}}));
         return std::make_unique<FileLocatorFlowImpl>(protocol_message_handler_,
@@ -146,11 +148,12 @@ TEST_F(FileLocatorFlowTest, InitiateSearch)
 {
     const std::string file_hash = "manele2021";
     AHash             bin_file_hash;
+    uint8_t           ttl = 3;
     std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
     std::vector<IPv4Address> peers(static_cast<size_t>(search_propagation_degree_));
     std::generate(peers.begin(), peers.end(), [&] { return rng_.next<IPv4Address>(); });
 
-    auto flow = make_flow();
+    auto flow = make_flow(ttl);
     flow->start();
 
     ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
@@ -166,7 +169,8 @@ TEST_F(FileLocatorFlowTest, InitiateSearch)
         send(_, ResultOf([](auto &&ptr) { return ptr.get(); },
                     WhenDynamicCastTo<SearchMessage *>(
                         Pointee(AllOf(Field(&SearchMessage::sender_public_key, pub_key_),
-                            Field(&SearchMessage::file_hash, bin_file_hash)))))))
+                            Field(&SearchMessage::file_hash, bin_file_hash),
+                            Field(&SearchMessage::time_to_live, ttl)))))))
         .Times(search_propagation_degree_)
         .WillRepeatedly(make_send_message_action(true, [&](auto p, auto m) {
             sent_to.push_back(p);
@@ -265,7 +269,8 @@ TEST_F(FileLocatorFlowTest, ForwardSearch)
     msg.request_id        = rng_.next<RequestId>();
     msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
-    msg.search_id = rng_.next<SearchId>();
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -283,7 +288,8 @@ TEST_F(FileLocatorFlowTest, ForwardSearch)
                         AllOf(Field(&SearchMessage::sender_public_key, msg.sender_public_key),
                             Field(&SearchMessage::file_hash, msg.file_hash),
                             Field(&SearchMessage::request_id, Not(msg.request_id)),
-                            Field(&SearchMessage::search_id, msg.search_id)))))))
+                            Field(&SearchMessage::search_id, msg.search_id),
+                            Field(&SearchMessage::time_to_live, msg.time_to_live - 1)))))))
         .Times(search_propagation_degree_)
         .WillRepeatedly(make_send_message_action(
             true, [&](IPv4Address p, auto /*msg*/) { sent_to.push_back(p); }));
@@ -300,6 +306,39 @@ TEST_F(FileLocatorFlowTest, ForwardSearch)
     ASSERT_THAT(sent_to, UnorderedElementsAreArray(peers));
 }
 
+TEST_F(FileLocatorFlowTest, ForwardSearch_PropagationLimit)
+{
+    const std::string file_hash = "manele2021";
+    AHash             bin_file_hash;
+    std::generate(bin_file_hash.begin(), bin_file_hash.end(), [&] { return rng_.next<Byte>(); });
+    std::vector<IPv4Address> peers(static_cast<size_t>(search_propagation_degree_));
+    IPv4Address              from = rng_.next<IPv4Address>();
+
+    SearchMessage msg;
+    msg.request_id        = rng_.next<RequestId>();
+    msg.sender_public_key = "kkt";
+    std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 1;
+
+    auto flow = make_flow();
+    flow->start();
+
+    ON_CALL(*file_storage_, contains(file_hash)).WillByDefault(Return(false));
+    ON_CALL(*file_hash_interpreter_, encode(_)).WillByDefault(Return(file_hash));
+    ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
+        .WillByDefault(make_get_peers_action(peers));
+
+    EXPECT_CALL(*protocol_message_handler_,
+        send_reply(from, Pointee(AllOf(Field(&BasicReply::request_id, msg.request_id),
+                             Field(&BasicReply::status_code, StatusCode::PROPAGATION_LIMIT)))))
+        .Times(1)
+        .WillRepeatedly(make_send_reply_action());
+
+    inbound_request_dispatcher_->on_message_received(from, msg);
+    thread_pool_->process_all_jobs();
+}
+
 TEST_F(FileLocatorFlowTest, ForwardSearch_PropagationLoop)
 {
     const std::string file_hash = "manele2021";
@@ -314,7 +353,8 @@ TEST_F(FileLocatorFlowTest, ForwardSearch_PropagationLoop)
     msg.request_id        = rng_.next<RequestId>();
     msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
-    msg.search_id = rng_.next<SearchId>();
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -364,7 +404,8 @@ TEST_F(FileLocatorFlowTest, ForwardSearch_NoPeers)
     msg.request_id        = rng_.next<RequestId>();
     msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
-    msg.search_id = rng_.next<SearchId>();
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -373,8 +414,6 @@ TEST_F(FileLocatorFlowTest, ForwardSearch_NoPeers)
     ON_CALL(*file_hash_interpreter_, encode(_)).WillByDefault(Return(file_hash));
     ON_CALL(*peer_address_provider_, get_peers(search_propagation_degree_, _))
         .WillByDefault(make_get_peers_action({}));
-
-    std::vector<IPv4Address> sent_to;
 
     EXPECT_CALL(*protocol_message_handler_,
         send_reply(from, Pointee(AllOf(Field(&BasicReply::request_id, msg.request_id),
@@ -397,7 +436,8 @@ TEST_F(FileLocatorFlowTest, FileWanted)
     msg.request_id        = rng_.next<RequestId>();
     msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
-    msg.search_id = rng_.next<SearchId>();
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -446,7 +486,8 @@ TEST_F(FileLocatorFlowTest, SendOffer)
     msg.request_id        = rng_.next<RequestId>();
     msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
-    msg.search_id = rng_.next<SearchId>();
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -525,7 +566,8 @@ TEST_F(FileLocatorFlowTest, SendOffer_OfferIdDuplication)
     msg.request_id        = rng_.next<RequestId>();
     msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
-    msg.search_id = rng_.next<SearchId>();
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -625,7 +667,8 @@ TEST_F(FileLocatorFlowTest, ForwardOffer)
     search_msg.request_id        = rng_.next<RequestId>();
     search_msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), search_msg.file_hash.begin());
-    search_msg.search_id = rng_.next<SearchId>();
+    search_msg.search_id    = rng_.next<SearchId>();
+    search_msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -1006,7 +1049,8 @@ TEST_F(FileLocatorFlowTest, ForwardConfirmTransfer)
     search_msg.request_id        = rng_.next<RequestId>();
     search_msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), search_msg.file_hash.begin());
-    search_msg.search_id = rng_.next<SearchId>();
+    search_msg.search_id    = rng_.next<SearchId>();
+    search_msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();
@@ -1128,7 +1172,8 @@ TEST_F(FileLocatorFlowTest, TransferConfirmed)
     msg.request_id        = rng_.next<RequestId>();
     msg.sender_public_key = "kkt";
     std::copy(bin_file_hash.cbegin(), bin_file_hash.cend(), msg.file_hash.begin());
-    msg.search_id = rng_.next<SearchId>();
+    msg.search_id    = rng_.next<SearchId>();
+    msg.time_to_live = 3;
 
     auto flow = make_flow();
     flow->start();

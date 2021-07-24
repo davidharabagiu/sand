@@ -135,6 +135,7 @@ private:
     const std::string                                       private_key_;
     const int                                               search_propagation_degree_;
     const int                                               search_timeout_sec_;
+    const uint8_t                                           search_message_initial_ttl_;
     const int                                     routing_table_entry_expiration_time_sec_;
     utils::ListenerGroup<FileLocatorFlowListener> listener_group_;
     utils::Random                                 rng_;

@@ -11,6 +11,7 @@
   "search": {
     "search_propagation_degree": 3,
     "search_timeout": 60,
+    "search_message_ttl": 10,
     "routing_table_entry_timeout": 60
   },
   "transfer": {

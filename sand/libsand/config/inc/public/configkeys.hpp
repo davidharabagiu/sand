@@ -18,6 +18,7 @@ public:
         INITIAL_PEER_COUNT,
         SEARCH_PROPAGATION_DEGREE,
         SEARCH_TIMEOUT,
+        SEARCH_MESSAGE_TTL,
         ROUTING_TABLE_ENTRY_TIMEOUT,
         RECV_FILE_TIMEOUT,
         DROP_POINT_REQUEST_TIMEOUT,
@@ -34,8 +35,6 @@ public:
 
         KEY_COUNT
     };
-
-    ConfigKey(const std::string &str_key);
 
     ConfigKey(EnumType k)
         : key_ {k}
@@ -69,7 +68,7 @@ private:
     EnumType key_;
 
     static constexpr char const *string_vals[] {"port", "known_dnl_nodes_list_file",
-        "initial_peer_count", "search_propagation_degree", "search_timeout",
+        "initial_peer_count", "search_propagation_degree", "search_timeout", "search_message_ttl",
         "routing_table_entry_timeout", "recv_file_timeout", "drop_point_request_timeout",
         "drop_point_transfer_timeout", "lift_proxy_request_timeout", "lift_proxy_transfer_timeout",
         "confirm_transfer_timeout", "metadata_file", "file_storage_dir", "max_part_size",

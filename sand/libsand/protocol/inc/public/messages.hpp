@@ -55,9 +55,10 @@ enum class StatusCode : uint8_t
     DUPLICATION             = 3,
     FOREIGN_DNL_ADDRESS     = 4,
     CANNOT_FORWARD          = 5,
-    DENY                    = 6,
-    LIFT_PROXY_DISCONNECTED = 7,
-    INTERNAL_ERROR          = 8
+    PROPAGATION_LIMIT       = 6,
+    DENY                    = 7,
+    LIFT_PROXY_DISCONNECTED = 8,
+    INTERNAL_ERROR          = 9
 };
 
 struct Message
@@ -175,6 +176,7 @@ struct SearchMessage : public Message
     SearchId      search_id {};
     NodePublicKey sender_public_key {};
     AHash         file_hash {};
+    uint8_t       time_to_live {};
 
     SearchMessage()
         : Message {MessageCode::SEARCH}

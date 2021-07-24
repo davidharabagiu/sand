@@ -11,7 +11,7 @@ DefaultConfigValues::DefaultConfigValues()
           /* KNOWN_DNL_NODES_LIST_FILE */ std::string {"dnl_node_list.txt"},
           /* INITIAL_PEER_COUNT */ 10LL,
           /* SEARCH_PROPAGATION_DEGREE */ 3LL, /* SEARCH_TIMEOUT */ 60LL /* = 1 minute */,
-          /* ROUTING_TABLE_ENTRY_TIMEOUT */ 60LL /* = 1 minute */,
+          /* SEARCH_MESSAGE_TTL */ 10LL, /* ROUTING_TABLE_ENTRY_TIMEOUT */ 60LL /* = 1 minute */,
           /* RECV_FILE_TIMEOUT */ 60LL /* = 1 minute */,
           /* DROP_POINT_REQUEST_TIMEOUT */ 60LL /* = 1 minute */,
           /* DROP_POINT_TRANSFER_TIMEOUT */ 60LL /* = 1 minute */,

@@ -1,5 +1,6 @@
 #include "filelocatorflowimpl.hpp"
 
+#include <algorithm>
 #include <tuple>
 
 #include <glog/logging.h>
@@ -53,6 +54,8 @@ FileLocatorFlowImpl::FileLocatorFlowImpl(
     , search_propagation_degree_ {int(
           cfg.get_integer(config::ConfigKey::SEARCH_PROPAGATION_DEGREE))}
     , search_timeout_sec_ {int(cfg.get_integer(config::ConfigKey::SEARCH_TIMEOUT))}
+    , search_message_initial_ttl_ {uint8_t(
+          std::max(1LL, std::min(255LL, cfg.get_integer(config::ConfigKey::SEARCH_MESSAGE_TTL))))}
     , routing_table_entry_expiration_time_sec_ {int(
           cfg.get_integer(config::ConfigKey::ROUTING_TABLE_ENTRY_TIMEOUT))}
     , state_ {State::IDLE}
@@ -181,6 +184,7 @@ SearchHandle FileLocatorFlowImpl::search(const std::string &file_hash)
     protocol::SearchMessage msg;
     msg.search_id         = rng_.next<protocol::SearchId>();
     msg.sender_public_key = public_key_;
+    msg.time_to_live      = search_message_initial_ttl_;
     if (!file_hash_interpreter_->decode(file_hash, msg.file_hash))
     {
         LOG(WARNING) << "Invalid file hash provided";
@@ -512,7 +516,18 @@ void FileLocatorFlowImpl::handle_search(
 
         if (forward)
         {
-            forward_search_messsage(from, msg);
+            if (msg.time_to_live > 1)
+            {
+                forward_search_messsage(from, msg);
+            }
+            else
+            {
+                auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+                reply->request_id  = msg.request_id;
+                reply->status_code = protocol::StatusCode::PROPAGATION_LIMIT;
+                wait_for_reply_confirmation(
+                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+            }
         }
         else
         {
@@ -793,6 +808,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
         {
             auto unique_msg        = std::make_unique<protocol::SearchMessage>(msg);
             unique_msg->request_id = rng_.next<protocol::RequestId>();
+            --unique_msg->time_to_live;
             reply_futures->emplace_back(
                 peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
         }

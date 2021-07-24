@@ -121,6 +121,7 @@ TEST_F(MessageSerializerTest, SerializeRequest_Search)
     req.request_id        = 7;
     req.search_id         = 0x19c5d0b4db434a14;
     req.sender_public_key = "Ionut Cercel - Made in Romania - manele vechi";
+    req.time_to_live      = 10;
     testutils::random_values(req.file_hash.begin(), req.file_hash.size());
 
     std::vector<uint8_t> expected {0x40, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x4a,
@@ -128,6 +129,7 @@ TEST_F(MessageSerializerTest, SerializeRequest_Search)
     std::copy(
         req.sender_public_key.cbegin(), req.sender_public_key.cend(), std::back_inserter(expected));
     std::copy(req.file_hash.cbegin(), req.file_hash.cend(), std::back_inserter(expected));
+    expected.push_back(0x0a);
 
     MessageSerializerImpl serializer;
     auto                  bytes = serializer.serialize(req);
@@ -511,14 +513,15 @@ TEST_F(MessageSerializerTest, DeserializeRequest_Search)
         0x43, 0xdb, 0xb4, 0xd0, 0xc5, 0x19, uint8_t(pub_key.size()), 0x00};
     std::copy(pub_key.cbegin(), pub_key.cend(), std::back_inserter(bytes));
     std::copy(file_hash.cbegin(), file_hash.cend(), std::back_inserter(bytes));
+    bytes.push_back(0x0a);
 
     MessageSerializerImpl serializer;
     EXPECT_CALL(*result_receptor_mock_,
-        deserialized(Matcher<const SearchMessage &>(
-            AllOf(Field(&SearchMessage::message_code, MessageCode::SEARCH),
-                Field(&SearchMessage::request_id, 7), Field(&SearchMessage::search_id, search_id),
-                Field(&SearchMessage::sender_public_key, pub_key),
-                Field(&SearchMessage::file_hash, file_hash)))))
+        deserialized(Matcher<const SearchMessage &>(AllOf(
+            Field(&SearchMessage::message_code, MessageCode::SEARCH),
+            Field(&SearchMessage::request_id, 7), Field(&SearchMessage::search_id, search_id),
+            Field(&SearchMessage::sender_public_key, pub_key),
+            Field(&SearchMessage::file_hash, file_hash), Field(&SearchMessage::time_to_live, 10)))))
         .Times(1);
 
     serializer.deserialize(bytes, *result_receptor_mock_);
