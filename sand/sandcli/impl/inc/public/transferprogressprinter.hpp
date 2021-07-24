@@ -14,6 +14,7 @@ class TransferProgressPrinter : public sand::SANDNodeListener
 public:
     TransferProgressPrinter(std::ostream &output_stream, int print_timeout_ms);
 
+    void on_file_found() override;
     void on_transfer_progress_changed(size_t bytes_transferred, size_t total_bytes) override;
 
 private:

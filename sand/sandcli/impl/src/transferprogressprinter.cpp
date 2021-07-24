@@ -9,6 +9,11 @@ TransferProgressPrinter::TransferProgressPrinter(std::ostream &output_stream, in
     , bytes_transferred_on_latest_print_ {0}
 {}
 
+void TransferProgressPrinter::on_file_found()
+{
+    output_stream_ << "File found, starting transfer...\n";
+}
+
 void TransferProgressPrinter::on_transfer_progress_changed(
     size_t bytes_transferred, size_t total_bytes)
 {

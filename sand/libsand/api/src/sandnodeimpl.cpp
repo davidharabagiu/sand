@@ -329,6 +329,7 @@ bool SANDNodeImpl::download_file(
         }
     }
 
+    listener_group_.notify(&SANDNodeListener::on_file_found);
     set_state(State::DOWNLOADING);
 
     {
