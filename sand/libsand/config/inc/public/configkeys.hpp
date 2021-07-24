@@ -15,7 +15,6 @@ public:
 
         PORT = FIRST_KEY,
         KNOWN_DNL_NODES_LIST_FILE,
-        IS_DNL_NODE,
         INITIAL_PEER_COUNT,
         SEARCH_PROPAGATION_DEGREE,
         SEARCH_TIMEOUT,
@@ -69,7 +68,7 @@ public:
 private:
     EnumType key_;
 
-    static constexpr char const *string_vals[] {"port", "known_dnl_nodes_list_file", "is_dnl_node",
+    static constexpr char const *string_vals[] {"port", "known_dnl_nodes_list_file",
         "initial_peer_count", "search_propagation_degree", "search_timeout",
         "routing_table_entry_timeout", "recv_file_timeout", "drop_point_request_timeout",
         "drop_point_transfer_timeout", "lift_proxy_request_timeout", "lift_proxy_transfer_timeout",

@@ -1,5 +1,4 @@
 {
-  "is_dnl_node": true,
   "dnl_sync_period": 600,
   "known_dnl_nodes_list_file": "dnl_node_list.txt"
 }

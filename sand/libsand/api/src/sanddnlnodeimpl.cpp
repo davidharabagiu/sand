@@ -30,7 +30,7 @@ SANDDNLNodeImpl::SANDDNLNodeImpl(
     const std::string &app_data_dir_path, const std::string &config_file_name)
     : state_ {State::IDLE}
     , cfg_ {config::JSONConfigLoader {path_join(app_data_dir_path, config_file_name)},
-          std::make_unique<DefaultConfigValues>(true)}
+          std::make_unique<DefaultConfigValues>()}
 {
     dnl_flow_listener_.set_on_node_connected_cb(
         [this](auto &&a1) { on_node_connected(std::forward<decltype(a1)>(a1)); });

@@ -56,7 +56,7 @@ SANDNodeImpl::SANDNodeImpl(std::string app_data_dir_path, const std::string &con
     , latest_download_succeeded_ {false}
     , app_data_dir_path_ {std::move(app_data_dir_path)}
     , cfg_ {config::JSONConfigLoader {path_join(app_data_dir_path_, config_file_name)},
-          std::make_unique<DefaultConfigValues>(false)}
+          std::make_unique<DefaultConfigValues>()}
 {
     peer_manager_flow_listener_.set_on_state_changed_cb(
         [this](auto &&a1) { on_peer_manager_flow_state_changed(std::forward<decltype(a1)>(a1)); });

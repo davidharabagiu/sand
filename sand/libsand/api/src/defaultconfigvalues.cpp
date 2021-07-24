@@ -6,10 +6,10 @@
 
 namespace sand
 {
-DefaultConfigValues::DefaultConfigValues(bool is_dnl_node)
+DefaultConfigValues::DefaultConfigValues()
     : default_values_ {/* PORT */ 12289LL,
           /* KNOWN_DNL_NODES_LIST_FILE */ std::string {"dnl_node_list.txt"},
-          /* IS_DNL_NODE */ is_dnl_node, /* INITIAL_PEER_COUNT */ 10LL,
+          /* INITIAL_PEER_COUNT */ 10LL,
           /* SEARCH_PROPAGATION_DEGREE */ 3LL, /* SEARCH_TIMEOUT */ 60LL /* = 1 minute */,
           /* ROUTING_TABLE_ENTRY_TIMEOUT */ 60LL /* = 1 minute */,
           /* RECV_FILE_TIMEOUT */ 60LL /* = 1 minute */,
