@@ -217,13 +217,15 @@ TEST_F(TemporaryDataStorageTest, SparseWritesOfVariousSizes)
 
     std::vector<WriteInfo> writes(number_of_writes);
     size_t                 last_write_offset = 0;
+    size_t                 last_write_size   = 0;
     for (auto &w : writes)
     {
         w.amount = rng_.next<size_t>(write_size_min, write_size_max);
-        w.offset = last_write_offset + w.amount + rng_.next<size_t>(50 * 1024);
+        w.offset = last_write_offset + last_write_size + rng_.next<size_t>(1024, 50 * 1024);
         w.data.resize(w.amount);
         std::generate(w.data.begin(), w.data.end(), [&] { return rng_.next<uint8_t>(); });
         last_write_offset = w.offset;
+        last_write_size   = w.amount;
     }
 
     TemporaryDataStorageImpl temp_storage;
@@ -265,13 +267,15 @@ TEST_F(TemporaryDataStorageTest, SparseWritesOfVariousSizes_FixedReads)
 
     std::vector<WriteInfo> writes(number_of_writes);
     size_t                 last_write_offset = 0;
+    size_t                 last_write_size   = 0;
     for (auto &w : writes)
     {
         w.amount = rng_.next<size_t>(write_size_min, write_size_max);
-        w.offset = last_write_offset + w.amount + rng_.next<size_t>(50 * 1024);
+        w.offset = last_write_offset + last_write_size + rng_.next<size_t>(1024, 50 * 1024);
         w.data.resize(w.amount);
         std::generate(w.data.begin(), w.data.end(), [&] { return rng_.next<uint8_t>(); });
         last_write_offset = w.offset;
+        last_write_size   = w.amount;
         total_bytes_written += w.amount;
     }
 
@@ -298,6 +302,7 @@ TEST_F(TemporaryDataStorageTest, SparseWritesOfVariousSizes_FixedReads)
         auto write_it = std::find_if(writes.begin(), writes.end(), [&](const WriteInfo &w) {
             return read_offset >= w.offset && read_offset + read_amount <= w.offset + w.amount;
         });
+        EXPECT_NE(write_it, writes.end());
         EXPECT_TRUE(std::equal(read_data.data(), read_data.data() + read_amount,
             write_it->data.data() + read_offset - write_it->offset));
         total_bytes_read += read_amount;
