@@ -85,7 +85,7 @@ TEST_F(ProtocolMessageHandlerTest, SendAndReceiveReply)
     const int   port = 1234;
 
     PullMessage request;
-    request.request_id    = rng.next<RequestId>();
+    request.request_id    = 4;
     request.address_count = 10;
 
     PullReply reply;
@@ -123,6 +123,7 @@ TEST_F(ProtocolMessageHandlerTest, SendAndReceiveReply)
 
     auto future = uut->send(p1, std::make_unique<PullMessage>(request));
     EXPECT_TRUE(future.valid());
+    io_executer_->process_all_jobs();
 
     std::thread reply_thread {
         [&] { uut->on_message_received(p1, reply_bytes.data(), reply_bytes.size()); }};
