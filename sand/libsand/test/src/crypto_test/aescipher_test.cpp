@@ -1,3 +1,4 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "aescipherimpl.hpp"
@@ -14,8 +15,7 @@ class AESCipherTest : public Test
 {
 protected:
     void SetUp() override
-    {
-    }
+    {}
 
     void TestEncryptDecrypt(size_t data_size)
     {
@@ -35,7 +35,7 @@ protected:
         auto decrypted = aes.decrypt(AESCipher::CBC, key, iv, encrypted, executer).get();
         EXPECT_FALSE(decrypted.empty());
 
-        EXPECT_EQ(original, decrypted);
+        EXPECT_THAT(original, ContainerEq(decrypted));
     }
 };
 }  // namespace

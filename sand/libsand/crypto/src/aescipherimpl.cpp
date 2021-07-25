@@ -86,7 +86,7 @@ std::future<AESCipherImpl::ByteVector> AESCipherImpl::encrypt(ModeOfOperation mo
             return;
         }
 
-        ByteVector cipher_text(plain_text.size() + aes_block_size - 1);
+        ByteVector cipher_text(plain_text.size() + aes_block_size);
 
         int encrypt_len;
         if (EVP_EncryptUpdate(
