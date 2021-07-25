@@ -4,6 +4,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 #include "completiontoken.hpp"
@@ -34,6 +35,7 @@ private:
     Period                          period_;
     Callback                        callback_;
     bool                            single_shot_;
+    std::mutex                      mutex_;
 };
 }  // namespace sand::utils
 

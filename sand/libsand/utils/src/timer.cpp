@@ -13,8 +13,7 @@ Timer::Timer(std::shared_ptr<Executer> executer)
     , period_ {}
     , callback_ {}
     , single_shot_ {}
-{
-}
+{}
 
 Timer::~Timer()
 {
@@ -26,6 +25,8 @@ Timer::~Timer()
 
 bool Timer::start(Period period, Callback &&callback, bool single_shot)
 {
+    std::lock_guard lock {mutex_};
+
     if (completion_token_)
     {
         LOG(WARNING) << "Timer already running";
@@ -40,7 +41,15 @@ bool Timer::start(Period period, Callback &&callback, bool single_shot)
     completion_token_ = executer_->add_job([this](const CompletionToken &completion_token) {
         for (;;)
         {
-            std::this_thread::sleep_until(next_trigger_moment_);
+            TimePoint next_trigger_moment;
+            {
+                std::lock_guard lock {mutex_};
+                next_trigger_moment = next_trigger_moment_;
+            }
+
+            std::this_thread::sleep_until(next_trigger_moment);
+
+            std::lock_guard lock {mutex_};
             if (completion_token.is_cancelled())
             {
                 break;
@@ -70,6 +79,8 @@ bool Timer::restart()
 
 bool Timer::stop()
 {
+    std::lock_guard lock {mutex_};
+
     if (!completion_token_)
     {
         LOG(WARNING) << "Timer not running";

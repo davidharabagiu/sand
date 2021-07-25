@@ -65,6 +65,8 @@ TEST_F(TimerTest, SingleShot)
     std::unique_lock lock {mut};
     EXPECT_TRUE(cv.wait_for(lock, timeout, [&] { return called; }));
     EXPECT_LE(std::fabs(float(actual_period.count()) / period.count() - 1), acceptable_error);
+
+    executer_->process_all_jobs();
 }
 
 TEST_F(TimerTest, SingleShot_Stop)
@@ -80,6 +82,8 @@ TEST_F(TimerTest, SingleShot_Stop)
 
     EXPECT_TRUE(timer.stop());  // This call blocks until the wait job expires
     EXPECT_FALSE(called);
+
+    executer_->process_all_jobs();
 }
 
 TEST_F(TimerTest, Periodic)
@@ -119,8 +123,10 @@ TEST_F(TimerTest, Periodic)
         EXPECT_LE(std::fabs(float(actual_period.count()) / period.count() - 1), acceptable_error);
     }
 
-    EXPECT_TRUE(timer.stop());  // This call blocks until the wait job expires
+    EXPECT_TRUE(timer.stop());
     EXPECT_FALSE(called);
+
+    executer_->process_all_jobs();
 }
 
 TEST_F(TimerTest, DoubleStart)
@@ -153,6 +159,8 @@ TEST_F(TimerTest, DoubleStart)
 
     EXPECT_TRUE(timer.start(
         period, [] {}, true));
+
+    executer_->process_all_jobs();
 }
 
 TEST_F(TimerTest, DoubleStop)
@@ -165,6 +173,8 @@ TEST_F(TimerTest, DoubleStop)
 
     EXPECT_TRUE(timer.stop());
     EXPECT_FALSE(timer.stop());
+
+    executer_->process_all_jobs();
 }
 
 TEST_F(TimerTest, Restart)
@@ -202,4 +212,6 @@ TEST_F(TimerTest, Restart)
     EXPECT_LE(
         std::fabs(float(actual_period.count()) / (period.count() + restart_delay.count()) - 1),
         acceptable_error);
+
+    executer_->process_all_jobs();
 }
