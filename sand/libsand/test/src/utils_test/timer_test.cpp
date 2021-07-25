@@ -39,7 +39,7 @@ protected:
 TEST_F(TimerTest, SingleShot)
 {
     constexpr std::chrono::milliseconds period {100};
-    constexpr float                     acceptable_error = 0.025f;
+    constexpr float                     acceptable_error = 0.1f;
     constexpr std::chrono::milliseconds timeout {
         round<long>(period.count() * (1 + acceptable_error))};
 
@@ -89,7 +89,7 @@ TEST_F(TimerTest, SingleShot_Stop)
 TEST_F(TimerTest, Periodic)
 {
     constexpr std::chrono::milliseconds period {50};
-    constexpr float                     acceptable_error = 0.025f;
+    constexpr float                     acceptable_error = 0.1f;
     constexpr std::chrono::milliseconds timeout {
         round<long>(period.count() * (1 + acceptable_error))};
     constexpr int iterations = 3;
@@ -132,7 +132,7 @@ TEST_F(TimerTest, Periodic)
 TEST_F(TimerTest, DoubleStart)
 {
     constexpr std::chrono::milliseconds period {50};
-    constexpr float                     error = 0.025f;
+    constexpr float                     error = 0.1f;
     constexpr std::chrono::milliseconds timeout {round<long>(period.count() * (1 + error))};
 
     Timer                   timer {executer_};
@@ -181,7 +181,7 @@ TEST_F(TimerTest, Restart)
 {
     constexpr std::chrono::milliseconds period {100};
     constexpr std::chrono::milliseconds restart_delay {50};
-    constexpr float                     acceptable_error = 0.025f;
+    constexpr float                     acceptable_error = 0.1f;
     constexpr std::chrono::milliseconds timeout {
         round<long>((period.count() + restart_delay.count()) * (1 + acceptable_error))};
 

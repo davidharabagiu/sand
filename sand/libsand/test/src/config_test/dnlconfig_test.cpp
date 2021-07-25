@@ -41,7 +41,7 @@ TEST_F(DNLConfigTest, RandomPick)
     ON_CALL(*loader_, load()).WillByDefault(Return(dnl_node_list_));
     DNLConfig config {std::move(loader_)};
 
-    size_t                remaining_tries = dnl_node_list_.size() * 10;
+    size_t                remaining_tries = dnl_node_list_.size() * 100;
     std::set<IPv4Address> unpicked_nodes(dnl_node_list_.cbegin(), dnl_node_list_.cend());
     while (remaining_tries-- && !unpicked_nodes.empty())
     {
