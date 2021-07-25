@@ -51,6 +51,11 @@ bool write_file_if_not_exists(const std::string &path, const std::string &conten
 int main(int /*argc*/, char **argv)
 {
     google::InitGoogleLogging(argv[0]);
+    FLAGS_logtostderr     = false;
+    FLAGS_stderrthreshold = 3;
+#ifdef NDEBUG
+    FLAGS_minloglevel = 1;
+#endif  // NEBUG
 
     std::cout << "SAND command line utility " << SANDCLI_VERSION << " (lib version "
               << sand::sand_version << ")\n";

@@ -62,6 +62,11 @@ public:
 int main(int /*argc*/, char **argv)
 {
     google::InitGoogleLogging(argv[0]);
+    FLAGS_logtostderr     = false;
+    FLAGS_stderrthreshold = 3;
+#ifdef NDEBUG
+    FLAGS_minloglevel = 1;
+#endif  // NEBUG
 
     std::cout << "SAND Distributed Name List node app " << DNLAPP_VERSION << " (lib version "
               << sand::sand_version << ")\n";
