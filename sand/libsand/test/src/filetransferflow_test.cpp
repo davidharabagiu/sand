@@ -788,6 +788,9 @@ TEST_F(FileTransferFlowTest, ReceiveFile)
     EXPECT_TRUE(flow->receive_file(transfer_handle, file_name));
     thread_pool_->process_all_jobs();
 
+    std::vector<std::pair<IPv4Address, UploadMessage>> upload_messages;
+
+    auto send_reply_action = make_send_reply_action();
     for (size_t i = 0; i != lift_proxies.size(); ++i)
     {
         const auto &part_data       = transfer_handle_data->parts[i];
@@ -809,21 +812,25 @@ TEST_F(FileTransferFlowTest, ReceiveFile)
             std::copy_n(it, chunk_size, chunk_data.begin());
             msg.data = xor_encrypt(chunk_data, xor_encryption_key);
 
+            upload_messages.emplace_back(lift_proxy_addr, msg);
+
             EXPECT_CALL(*protocol_message_handler_,
                 send_reply(lift_proxy_addr,
                     ResultOf([](auto &&ptr) { return ptr.get(); },
                         Pointee(AllOf(Field(&BasicReply::request_message_code, MessageCode::UPLOAD),
                             Field(&BasicReply::status_code, StatusCode::OK),
-                            Field(&BasicReply::request_id, request_id))))))
+                            Field(&BasicReply::request_id, msg.request_id))))))
                 .Times(1)
-                .WillOnce(make_send_reply_action());
-
-            inbound_request_dispatcher_->on_message_received(lift_proxy_addr, msg);
+                .WillOnce(send_reply_action);
         }
     }
 
-    thread_pool_->process_all_jobs();
+    for (const auto &[to, msg] : upload_messages)
+    {
+        inbound_request_dispatcher_->on_message_received(to, msg);
+    }
 
+    thread_pool_->process_all_jobs();
     ASSERT_THAT(file_content, ContainerEq(received_file_content));
 }
 
@@ -1037,6 +1044,7 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
     EXPECT_TRUE(flow->receive_file(transfer_handle, file_name));
     thread_pool_->process_all_jobs();
 
+    std::vector<std::pair<IPv4Address, UploadMessage>> upload_messages;
     for (size_t i = 0; i != lift_proxies.size(); ++i)
     {
         const auto &part_data       = transfer_handle_data->parts[i];
@@ -1067,8 +1075,13 @@ TEST_F(FileTransferFlowTest, ReceiveFile_PeerDeniesRequestLiftProxy)
                 .Times(1)
                 .WillOnce(make_send_reply_action());
 
-            inbound_request_dispatcher_->on_message_received(lift_proxy_addr, msg);
+            upload_messages.emplace_back(lift_proxy_addr, msg);
         }
+    }
+
+    for (const auto &[to, msg] : upload_messages)
+    {
+        inbound_request_dispatcher_->on_message_received(to, msg);
     }
 
     thread_pool_->process_all_jobs();
@@ -1146,6 +1159,7 @@ TEST_F(FileTransferFlowTest, DropPoint_InitUpload_InitDownload_Upload)
 
     thread_pool_->process_all_jobs();
 
+    std::vector<std::pair<IPv4Address, UploadMessage>> upload_messages;
     for (auto it = file_content.cbegin(); it != file_content.cend();
          std::advance(it, max_chunk_size_))
     {
@@ -1172,7 +1186,12 @@ TEST_F(FileTransferFlowTest, DropPoint_InitUpload_InitDownload_Upload)
                             Field(&UploadMessage::data, ContainerEq(upload_msg.data))))))))
             .Times(1)
             .WillOnce(make_send_message_action(StatusCode::OK));
-        inbound_request_dispatcher_->on_message_received(sender_addr, upload_msg);
+        upload_messages.emplace_back(sender_addr, upload_msg);
+    }
+
+    for (const auto &[to, msg] : upload_messages)
+    {
+        inbound_request_dispatcher_->on_message_received(to, msg);
     }
 
     thread_pool_->process_all_jobs();
@@ -1231,6 +1250,7 @@ TEST_F(FileTransferFlowTest, DropPoint_InitUpload_Upload_InitDownload)
 
     thread_pool_->process_all_jobs();
 
+    std::vector<std::pair<IPv4Address, UploadMessage>> upload_messages;
     for (auto it = file_content.cbegin(); it != file_content.cend();
          std::advance(it, max_chunk_size_))
     {
@@ -1262,7 +1282,12 @@ TEST_F(FileTransferFlowTest, DropPoint_InitUpload_Upload_InitDownload)
                             Field(&UploadMessage::data, ContainerEq(upload_msg.data))))))))
             .Times(1)
             .WillOnce(make_send_message_action(StatusCode::OK));
-        inbound_request_dispatcher_->on_message_received(sender_addr, upload_msg);
+        upload_messages.emplace_back(sender_addr, upload_msg);
+    }
+
+    for (const auto &[to, msg] : upload_messages)
+    {
+        inbound_request_dispatcher_->on_message_received(to, msg);
     }
 
     thread_pool_->process_all_jobs();
@@ -1412,6 +1437,7 @@ TEST_F(FileTransferFlowTest, DropPoint_Mixed)
         }
 
         inbound_request_dispatcher_->on_message_received(sender_addr, upload_msg);
+        thread_pool_->process_all_jobs();
 
         if (!init_download_sent)
         {
@@ -1492,6 +1518,7 @@ TEST_F(FileTransferFlowTest, LiftProxy)
     inbound_request_dispatcher_->on_message_received(receiver_addr, fetch_msg);
     thread_pool_->process_all_jobs();
 
+    std::vector<std::pair<IPv4Address, UploadMessage>> upload_messages;
     for (auto it = file_content.cbegin(); it != file_content.cend();
          std::advance(it, max_chunk_size_))
     {
@@ -1518,7 +1545,12 @@ TEST_F(FileTransferFlowTest, LiftProxy)
                             Field(&UploadMessage::data, ContainerEq(upload_msg.data))))))))
             .Times(1)
             .WillOnce(make_send_message_action(StatusCode::OK));
-        inbound_request_dispatcher_->on_message_received(drop_point_addr, upload_msg);
+        upload_messages.emplace_back(drop_point_addr, upload_msg);
+    }
+
+    for (const auto &[to, msg] : upload_messages)
+    {
+        inbound_request_dispatcher_->on_message_received(to, msg);
     }
 
     thread_pool_->process_all_jobs();
