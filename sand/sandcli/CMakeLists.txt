@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.17)
 
-set(VERSION 0.9)
+set(VERSION 1.0)
 set(AUTHOR "David Harabagiu")
 set(LICENSE "This program and the SAND library are released under the GNU General Public License v3.0 or later")
 
