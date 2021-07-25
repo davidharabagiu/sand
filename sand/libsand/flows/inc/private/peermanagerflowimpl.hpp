@@ -68,6 +68,7 @@ private:
         size_t count, const std::set<network::IPv4Address> &exclude = {});
     std::future<std::set<network::IPv4Address>> find_new_peers(size_t count);
     void                                        stop_impl();
+    void                                        wait_for_job_completion();
     void add_job(const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job,
         bool allow_from_any_state = false);
 

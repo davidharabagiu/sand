@@ -150,6 +150,12 @@ void PeerManagerFlowImpl::stop_impl()
     State state = state_;
     if (state != State::RUNNING)
     {
+        if (state == State::ERROR)
+        {
+            wait_for_job_completion();
+            return;
+        }
+
         LOG(WARNING) << "Cannot stop PeerManagerFlow from state " << to_string(state);
         return;
     }
@@ -157,7 +163,13 @@ void PeerManagerFlowImpl::stop_impl()
     set_state(State::STOPPING);
 
     say_bye_to_peers();
+    wait_for_job_completion();
 
+    set_state(State::IDLE);
+}
+
+void PeerManagerFlowImpl::wait_for_job_completion()
+{
     decltype(running_jobs_) runnings_jobs_copy;
 
     {
@@ -176,8 +188,6 @@ void PeerManagerFlowImpl::stop_impl()
     {
         LOG(ERROR) << "Some jobs are still running. This should not happen.";
     }
-
-    set_state(State::IDLE);
 }
 
 PeerManagerFlow::State PeerManagerFlowImpl::state() const
