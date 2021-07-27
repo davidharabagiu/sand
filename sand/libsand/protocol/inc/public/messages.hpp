@@ -252,6 +252,7 @@ struct ConfirmTransferMessage : public Message
 struct RequestDropPointMessage : public Message
 {
     PartSize part_size {};
+    OfferId  offer_id;
 
     RequestDropPointMessage()
         : Message {MessageCode::REQUESTDROPPOINT}
@@ -267,6 +268,7 @@ struct RequestDropPointMessage : public Message
 struct RequestLiftProxyMessage : public Message
 {
     PartSize part_size {};
+    OfferId  offer_id;
 
     RequestLiftProxyMessage()
         : Message {MessageCode::REQUESTLIFTPROXY}

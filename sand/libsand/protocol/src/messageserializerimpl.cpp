@@ -190,6 +190,7 @@ InputIt deserialize_payload(
 {
     ok        = true;
     src_begin = serialization::deserialize_field(message.part_size, src_begin, src_end, ok);
+    src_begin = serialization::deserialize_field(message.offer_id, src_begin, src_end, ok);
     return src_begin;
 }
 
@@ -199,6 +200,7 @@ InputIt deserialize_payload(
 {
     ok        = true;
     src_begin = serialization::deserialize_field(message.part_size, src_begin, src_end, ok);
+    src_begin = serialization::deserialize_field(message.offer_id, src_begin, src_end, ok);
     return src_begin;
 }
 
@@ -477,26 +479,28 @@ std::vector<uint8_t> MessageSerializerImpl::serialize(const ConfirmTransferMessa
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const RequestDropPointMessage &message) const
 {
-    std::vector<uint8_t> out(
-        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.part_size));
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
+                             sizeof(message.part_size) + sizeof(message.offer_id));
 
     auto dest = out.begin();
     dest      = serialization::serialize_field(message.message_code, dest);
     dest      = serialization::serialize_field(message.request_id, dest);
-    serialization::serialize_field(message.part_size, dest);
+    dest      = serialization::serialize_field(message.part_size, dest);
+    serialization::serialize_field(message.offer_id, dest);
 
     return out;
 }
 
 std::vector<uint8_t> MessageSerializerImpl::serialize(const RequestLiftProxyMessage &message) const
 {
-    std::vector<uint8_t> out(
-        sizeof(message.message_code) + sizeof(message.request_id) + sizeof(message.part_size));
+    std::vector<uint8_t> out(sizeof(message.message_code) + sizeof(message.request_id) +
+                             sizeof(message.part_size) + sizeof(message.offer_id));
 
     auto dest = out.begin();
     dest      = serialization::serialize_field(message.message_code, dest);
     dest      = serialization::serialize_field(message.request_id, dest);
-    serialization::serialize_field(message.part_size, dest);
+    dest      = serialization::serialize_field(message.part_size, dest);
+    serialization::serialize_field(message.offer_id, dest);
 
     return out;
 }

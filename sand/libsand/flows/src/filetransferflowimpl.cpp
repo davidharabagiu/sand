@@ -186,6 +186,7 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
         std::vector<protocol::OfferMessage::SecretData::PartData> parts;
         parts.reserve(number_of_parts);
         size_t current_offset = 0;
+        auto   offer_id       = rng_.next<protocol::OfferId>();
 
         while (drop_points.size() != number_of_parts)
         {
@@ -226,6 +227,7 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
                 auto request_drop_point_msg = std::make_unique<protocol::RequestDropPointMessage>();
                 request_drop_point_msg->request_id = rng_.next<protocol::RequestId>();
                 request_drop_point_msg->part_size  = padded_part_size;
+                request_drop_point_msg->offer_id   = offer_id;
 
                 auto request_drop_point_reply =
                     protocol_message_handler_->send(a, std::move(request_drop_point_msg)).get();
@@ -256,7 +258,7 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
             iv.cbegin(), iv.cend(), std::copy(key.cbegin(), key.cend(), transfer_key.begin()));
 
         promise->set_value(TransferHandle {std::make_shared<TransferHandleImpl>(
-            *search_handle.data(), rng_.next<protocol::OfferId>(), transfer_key, parts)});
+            *search_handle.data(), offer_id, transfer_key, parts)});
     });
 
     return future;
@@ -597,6 +599,7 @@ bool FileTransferFlowImpl::receive_file(
                 auto request_lift_proxy_msg = std::make_unique<protocol::RequestLiftProxyMessage>();
                 request_lift_proxy_msg->request_id = rng_.next<protocol::RequestId>();
                 request_lift_proxy_msg->part_size  = padded_part_size;
+                request_lift_proxy_msg->offer_id   = offer_id;
 
                 auto request_lift_proxy_reply =
                     protocol_message_handler_->send(a, std::move(request_lift_proxy_msg)).get();
@@ -755,12 +758,36 @@ void FileTransferFlowImpl::handle_request_drop_point(
                 return;
             }
 
+            if (commited_drop_point_roles_.count(from) != 0)
+            {
+                lock.unlock();
+                LOG(INFO) << "Drop point role already commited for uploader "
+                          << network::conversion::to_string(from) << ". Denying request.";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
+            if (inbound_transfers_.count(msg.offer_id) != 0 ||
+                outbound_transfers_.count(msg.offer_id) != 0 ||
+                reserved_offer_ids_as_proxy_.count(msg.offer_id) != 0 ||
+                ongoing_drop_point_transfers_.count(msg.offer_id) != 0 ||
+                ongoing_lift_proxy_transfers_.count(msg.offer_id) != 0)
+            {
+                lock.unlock();
+                LOG(INFO) << "Another role already assumed for transfer " << msg.offer_id
+                          << ". Denying request.";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
             std::shared_ptr<utils::Timer> timeout;
             if (drop_point_request_timeout_ > 0)
             {
                 timeout = add_timeout(
                     std::chrono::seconds(drop_point_request_timeout_),
-                    [this, from] {
+                    [this, from, offer_id = msg.offer_id] {
                         std::lock_guard lock {mutex_};
 
                         auto it = commited_drop_point_roles_.find(from);
@@ -771,23 +798,15 @@ void FileTransferFlowImpl::handle_request_drop_point(
 
                         commited_temp_storage_ -= it->second.part_size;
                         commited_drop_point_roles_.erase(it);
+                        reserved_offer_ids_as_proxy_.erase(offer_id);
                     },
                     false);
             }
 
-            if (commited_drop_point_roles_
-                    .emplace(from, CommitedProxyRoleData {msg.part_size, timeout})
-                    .second == false)
-            {
-                lock.unlock();
-                LOG(INFO) << "Drop point role already commited for uploader "
-                          << network::conversion::to_string(from) << ". Denying request.";
-                reply->status_code = protocol::StatusCode::DENY;
-                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
-                return;
-            }
-
+            commited_drop_point_roles_.emplace(
+                from, CommitedProxyRoleData {msg.part_size, timeout});
             commited_temp_storage_ += msg.part_size;
+            reserved_offer_ids_as_proxy_.emplace(msg.offer_id);
         }
 
         reply->status_code = protocol::StatusCode::OK;
@@ -811,21 +830,7 @@ void FileTransferFlowImpl::handle_request_lift_proxy(
         {
             std::unique_lock lock {mutex_};
 
-            std::shared_ptr<utils::Timer> timeout;
-            if (lift_proxy_request_timeout_ > 0)
-            {
-                timeout = add_timeout(
-                    std::chrono::seconds(lift_proxy_request_timeout_),
-                    [this, from] {
-                        std::lock_guard lock {mutex_};
-                        commited_lift_proxy_roles_.erase(from);
-                    },
-                    false);
-            }
-
-            if (!commited_lift_proxy_roles_
-                     .emplace(from, CommitedProxyRoleData {msg.part_size, timeout})
-                     .second)
+            if (commited_lift_proxy_roles_.find(from) != commited_lift_proxy_roles_.end())
             {
                 lock.unlock();
                 LOG(WARNING) << "RequestLiftProxy from " << network::conversion::to_string(from)
@@ -834,6 +839,37 @@ void FileTransferFlowImpl::handle_request_lift_proxy(
                 protocol_message_handler_->send_reply(from, std::move(reply)).wait();
                 return;
             }
+
+            if (inbound_transfers_.count(msg.offer_id) != 0 ||
+                outbound_transfers_.count(msg.offer_id) != 0 ||
+                reserved_offer_ids_as_proxy_.count(msg.offer_id) != 0 ||
+                ongoing_drop_point_transfers_.count(msg.offer_id) != 0 ||
+                ongoing_lift_proxy_transfers_.count(msg.offer_id) != 0)
+            {
+                lock.unlock();
+                LOG(INFO) << "Another role already assumed for transfer " << msg.offer_id
+                          << ". Denying request.";
+                reply->status_code = protocol::StatusCode::DENY;
+                protocol_message_handler_->send_reply(from, std::move(reply)).wait();
+                return;
+            }
+
+            std::shared_ptr<utils::Timer> timeout;
+            if (lift_proxy_request_timeout_ > 0)
+            {
+                timeout = add_timeout(
+                    std::chrono::seconds(lift_proxy_request_timeout_),
+                    [this, from, offer_id = msg.offer_id] {
+                        std::lock_guard lock {mutex_};
+                        commited_lift_proxy_roles_.erase(from);
+                        reserved_offer_ids_as_proxy_.erase(offer_id);
+                    },
+                    false);
+            }
+
+            commited_lift_proxy_roles_.emplace(
+                from, CommitedProxyRoleData {msg.part_size, timeout});
+            reserved_offer_ids_as_proxy_.emplace(msg.offer_id);
         }
 
         reply->status_code = protocol::StatusCode::OK;
@@ -1320,6 +1356,7 @@ void FileTransferFlowImpl::handle_fetch(
             {
                 std::lock_guard lock {mutex_};
                 commited_lift_proxy_roles_.erase(from);
+                reserved_offer_ids_as_proxy_.erase(msg.offer_id);
             }
 
             LOG(WARNING) << "Cannot send InitDownload message to "
@@ -1434,6 +1471,7 @@ void FileTransferFlowImpl::handle_init_download(
             }
             commited_drop_point_roles_.erase(it->second.uploader);
             ongoing_drop_point_transfers_.erase(it);
+            reserved_offer_ids_as_proxy_.erase(msg.offer_id);
         };
 
         // Send all temporary stored data
@@ -1564,6 +1602,7 @@ void FileTransferFlowImpl::stop_impl()
     ongoing_drop_point_transfers_.clear();
     commited_lift_proxy_roles_.clear();
     ongoing_lift_proxy_transfers_.clear();
+    reserved_offer_ids_as_proxy_.clear();
     commited_temp_storage_ = 0;
 
     set_state(State::IDLE);
@@ -1661,6 +1700,7 @@ void FileTransferFlowImpl::drop_point_transfer_cleanup(protocol::OfferId offer_i
     }
     commited_drop_point_roles_.erase(it->second.uploader);
     ongoing_drop_point_transfers_.erase(it);
+    reserved_offer_ids_as_proxy_.erase(offer_id);
 }
 
 void FileTransferFlowImpl::lift_proxy_tranfer_cleanup(protocol::OfferId offer_id)
@@ -1672,7 +1712,8 @@ void FileTransferFlowImpl::lift_proxy_tranfer_cleanup(protocol::OfferId offer_id
     {
         return;
     }
-    commited_drop_point_roles_.erase(it->second.drop_point);
+    commited_lift_proxy_roles_.erase(it->second.drop_point);
     ongoing_lift_proxy_transfers_.erase(it);
+    reserved_offer_ids_as_proxy_.erase(offer_id);
 }
 }  // namespace sand::flows

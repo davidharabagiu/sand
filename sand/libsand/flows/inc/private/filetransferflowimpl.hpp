@@ -190,6 +190,7 @@ private:
     std::map<protocol::OfferId, OngoingDropPointTransferData> ongoing_drop_point_transfers_;
     std::map<network::IPv4Address, CommitedProxyRoleData>     commited_lift_proxy_roles_;
     std::map<protocol::OfferId, OngoingLiftProxyTransferData> ongoing_lift_proxy_transfers_;
+    std::set<protocol::OfferId>                               reserved_offer_ids_as_proxy_;
     std::set<std::shared_ptr<utils::Timer>>                   timeouts_;
     State                                                     state_;
     mutable std::mutex                                        mutex_;
