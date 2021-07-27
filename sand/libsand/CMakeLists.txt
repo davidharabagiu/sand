@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 project(libsand)
 
-set(VERSION 0.9.1)
+set(VERSION 0.9.2)
 
 add_subdirectory(test)
 add_subdirectory(utils)
