@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 project(sandcli_test)
 
-set(TARGET_NAME sandc_test)
+set(TARGET_NAME sandc_unit_test)
 
 include(${SAND_CMAKE_SCRIPTS_DIR}/compiler_options.cmake REQUIRED)
 include(${SAND_CMAKE_SCRIPTS_DIR}/check_asan.cmake REQUIRED)

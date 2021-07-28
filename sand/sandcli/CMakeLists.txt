@@ -5,7 +5,10 @@ set(AUTHOR "David Harabagiu")
 set(LICENSE "This program and the SAND library are released under the GNU General Public License v3.0 or later")
 
 add_subdirectory(impl)
-add_subdirectory(test)
+
+if (WITH_UNIT_TESTS)
+    add_subdirectory(test)
+endif()
 
 project(sandcli)
 
