@@ -11,15 +11,20 @@
 #include <boost/asio.hpp>
 
 #include "config.hpp"
-#include "filelocatorflowlistenerdelegate.hpp"
-#include "filetransferflowlistenerdelegate.hpp"
+#include "filelocatorflow.hpp"
+#include "filetransferflow.hpp"
 #include "listenergroup.hpp"
-#include "peermanagerflowlistenerdelegate.hpp"
+#include "peermanagerflow.hpp"
 #include "sandnodelistener.hpp"
 #include "transferhandle.hpp"
 
 namespace sand
 {
+// Forward declarations
+class PeerManagerFlowListenerDelegate;
+class FileLocatorFlowListenerDelegate;
+class FileTransferFlowListenerDelegate;
+
 namespace utils
 {
 // Forward declarations
@@ -36,9 +41,6 @@ class FileStorage;
 namespace flows
 {
 // Forward declarations
-class PeerManagerFlow;
-class FileLocatorFlow;
-class FileTransferFlow;
 class SearchHandle;
 }  // namespace flows
 
@@ -128,32 +130,32 @@ private:
     }
 
 private:
-    State                                    state_;
-    UploadState                              upload_state_;
-    flows::TransferHandle                    current_download_;
-    bool                                     latest_download_succeeded_;
-    std::string                              latest_download_error_;
-    flows::TransferHandle                    current_upload_;
-    std::unique_ptr<utils::Timer>            pending_transfer_confirmation_timeout_;
-    const std::string                        app_data_dir_path_;
-    config::Config                           cfg_;
-    utils::ListenerGroup<SANDNodeListener>   listener_group_;
-    std::unique_ptr<boost::asio::io_context> tcp_sender_io_ctx_;
-    std::unique_ptr<boost::asio::io_context> tcp_server_io_ctx_;
-    std::shared_ptr<utils::ThreadPool>       thread_pool_;
-    std::shared_ptr<utils::IOThreadPool>     io_thread_pool_;
-    std::shared_ptr<storage::FileStorage>    file_storage_;
-    std::shared_ptr<flows::PeerManagerFlow>  peer_manager_flow_;
-    PeerManagerFlowListenerDelegate          peer_manager_flow_listener_;
-    std::unique_ptr<flows::FileLocatorFlow>  file_locator_flow_;
-    FileLocatorFlowListenerDelegate          file_locator_flow_listener_;
-    std::unique_ptr<flows::FileTransferFlow> file_transfer_flow_;
-    FileTransferFlowListenerDelegate         file_transfer_flow_listener_;
-    mutable std::mutex                       mutex_;
-    mutable std::mutex                       upload_procedure_mutex_;
-    std::condition_variable                  cv_waiting_for_start_;
-    std::condition_variable                  cv_waiting_for_search_;
-    std::condition_variable                  cv_waiting_for_download_completion_;
+    State                                             state_;
+    UploadState                                       upload_state_;
+    flows::TransferHandle                             current_download_;
+    bool                                              latest_download_succeeded_;
+    std::string                                       latest_download_error_;
+    flows::TransferHandle                             current_upload_;
+    std::unique_ptr<utils::Timer>                     pending_transfer_confirmation_timeout_;
+    const std::string                                 app_data_dir_path_;
+    config::Config                                    cfg_;
+    utils::ListenerGroup<SANDNodeListener>            listener_group_;
+    std::unique_ptr<boost::asio::io_context>          tcp_sender_io_ctx_;
+    std::unique_ptr<boost::asio::io_context>          tcp_server_io_ctx_;
+    std::shared_ptr<utils::ThreadPool>                thread_pool_;
+    std::shared_ptr<utils::IOThreadPool>              io_thread_pool_;
+    std::shared_ptr<storage::FileStorage>             file_storage_;
+    std::shared_ptr<flows::PeerManagerFlow>           peer_manager_flow_;
+    std::shared_ptr<PeerManagerFlowListenerDelegate>  peer_manager_flow_listener_;
+    std::unique_ptr<flows::FileLocatorFlow>           file_locator_flow_;
+    std::shared_ptr<FileLocatorFlowListenerDelegate>  file_locator_flow_listener_;
+    std::unique_ptr<flows::FileTransferFlow>          file_transfer_flow_;
+    std::shared_ptr<FileTransferFlowListenerDelegate> file_transfer_flow_listener_;
+    mutable std::mutex                                mutex_;
+    mutable std::mutex                                upload_procedure_mutex_;
+    std::condition_variable                           cv_waiting_for_start_;
+    std::condition_variable                           cv_waiting_for_search_;
+    std::condition_variable                           cv_waiting_for_download_completion_;
 };
 }  // namespace sand
 

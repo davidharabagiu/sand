@@ -1,16 +1,7 @@
 #include "tcpserverimpl.hpp"
 
-#include "fakenet.hpp"
-#include "singleton.hpp"
-
 namespace sand::network
 {
-TCPServerImpl::TCPServerImpl(boost::asio::io_context & /*io_ctx*/, unsigned short /*port*/)
-    : fake_net_ {Singleton<FakeNet>::get()}
-{
-    fake_net_.set_server_ptr(this);
-}
-
 bool TCPServerImpl::register_listener(std::shared_ptr<TCPMessageListener> listener)
 {
     return listener_group_.add(listener);

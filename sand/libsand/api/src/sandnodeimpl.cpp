@@ -13,15 +13,18 @@
 #include "dnlconfig.hpp"
 #include "filehashinterpreterimpl.hpp"
 #include "filelocatorflowimpl.hpp"
+#include "filelocatorflowlistenerdelegate.hpp"
 #include "filestorageimpl.hpp"
 #include "filestoragemetadataimpl.hpp"
 #include "filetransferflowimpl.hpp"
+#include "filetransferflowlistenerdelegate.hpp"
 #include "inboundrequestdispatcher.hpp"
 #include "iothreadpool.hpp"
 #include "jsonconfigloader.hpp"
 #include "mainexecuter.hpp"
 #include "messageserializerimpl.hpp"
 #include "peermanagerflowimpl.hpp"
+#include "peermanagerflowlistenerdelegate.hpp"
 #include "protocolmessagehandlerimpl.hpp"
 #include "rsacipherimpl.hpp"
 #include "secretdatainterpreterimpl.hpp"
@@ -57,27 +60,30 @@ SANDNodeImpl::SANDNodeImpl(std::string app_data_dir_path, const std::string &con
     , app_data_dir_path_ {std::move(app_data_dir_path)}
     , cfg_ {config::JSONConfigLoader {path_join(app_data_dir_path_, config_file_name)},
           std::make_unique<DefaultConfigValues>()}
+    , peer_manager_flow_listener_ {std::make_shared<PeerManagerFlowListenerDelegate>()}
+    , file_locator_flow_listener_ {std::make_shared<FileLocatorFlowListenerDelegate>()}
+    , file_transfer_flow_listener_ {std::make_shared<FileTransferFlowListenerDelegate>()}
 {
-    peer_manager_flow_listener_.set_on_state_changed_cb(
+    peer_manager_flow_listener_->set_on_state_changed_cb(
         [this](auto &&a1) { on_peer_manager_flow_state_changed(std::forward<decltype(a1)>(a1)); });
-    file_locator_flow_listener_.set_on_state_changed_cb(
+    file_locator_flow_listener_->set_on_state_changed_cb(
         [this](auto &&a1) { on_file_locator_flow_state_changed(std::forward<decltype(a1)>(a1)); });
-    file_locator_flow_listener_.set_on_file_found_cb(
+    file_locator_flow_listener_->set_on_file_found_cb(
         [this](auto &&a1) { on_file_found(std::forward<decltype(a1)>(a1)); });
-    file_locator_flow_listener_.set_on_file_wanted_cb(
+    file_locator_flow_listener_->set_on_file_wanted_cb(
         [this](auto &&a1) { on_file_wanted(std::forward<decltype(a1)>(a1)); });
-    file_locator_flow_listener_.set_on_transfer_confirmed_cb(
+    file_locator_flow_listener_->set_on_transfer_confirmed_cb(
         [this](auto &&a1) { on_transfer_confirmed(std::forward<decltype(a1)>(a1)); });
-    file_transfer_flow_listener_.set_on_state_changed_cb(
+    file_transfer_flow_listener_->set_on_state_changed_cb(
         [this](auto &&a1) { on_file_transfer_flow_state_changed(std::forward<decltype(a1)>(a1)); });
-    file_transfer_flow_listener_.set_on_transfer_progress_changed_cb(
+    file_transfer_flow_listener_->set_on_transfer_progress_changed_cb(
         [this](auto &&a1, auto &&a2, auto &&a3) {
             on_transfer_progress_changed(std::forward<decltype(a1)>(a1),
                 std::forward<decltype(a2)>(a2), std::forward<decltype(a3)>(a3));
         });
-    file_transfer_flow_listener_.set_on_transfer_completed_cb(
+    file_transfer_flow_listener_->set_on_transfer_completed_cb(
         [this](auto &&a1) { on_transfer_completed(std::forward<decltype(a1)>(a1)); });
-    file_transfer_flow_listener_.set_on_transfer_error_cb([this](auto &&a1, auto &&a2) {
+    file_transfer_flow_listener_->set_on_transfer_error_cb([this](auto &&a1, auto &&a2) {
         on_transfer_error(std::forward<decltype(a1)>(a1), std::forward<decltype(a2)>(a2));
     });
 }
@@ -127,11 +133,11 @@ bool SANDNodeImpl::start()
     std::string public_key;
     std::string private_key;
 
-    utils::MainExecuter main_executer;
+    thread_pool_ = std::make_shared<utils::ThreadPool>();
 
     auto rsa = std::make_shared<crypto::RSACipherImpl>();
     if (!rsa->generate_key_pair(crypto::RSACipher::M2048, crypto::RSACipher::E65537, public_key,
-                private_key, main_executer)
+                private_key, *thread_pool_)
              .get())
     {
         LOG(ERROR) << "Cannot generate RSA key pair";
@@ -140,7 +146,6 @@ bool SANDNodeImpl::start()
         return false;
     }
 
-    thread_pool_       = std::make_shared<utils::ThreadPool>();
     io_thread_pool_    = std::make_shared<utils::IOThreadPool>();
     tcp_sender_io_ctx_ = std::make_unique<boost::asio::io_context>();
     tcp_server_io_ctx_ = std::make_unique<boost::asio::io_context>();
@@ -183,9 +188,9 @@ bool SANDNodeImpl::start()
 
     protocol_message_handler->initialize();
     inbound_request_dispatcher->initialize();
-    peer_manager_flow_listener_.register_as_listener(*peer_manager_flow_);
-    file_locator_flow_listener_.register_as_listener(*file_locator_flow_);
-    file_transfer_flow_listener_.register_as_listener(*file_transfer_flow_);
+    peer_manager_flow_listener_->register_as_listener(*peer_manager_flow_);
+    file_locator_flow_listener_->register_as_listener(*file_locator_flow_);
+    file_transfer_flow_listener_->register_as_listener(*file_transfer_flow_);
 
     peer_manager_flow_->start();
     file_locator_flow_->start();
@@ -233,15 +238,15 @@ bool SANDNodeImpl::stop()
     tcp_sender_io_ctx_->stop();
 
     file_locator_flow_->stop();
-    file_locator_flow_listener_.unregister_as_listener(*file_locator_flow_);
+    file_locator_flow_listener_->unregister_as_listener(*file_locator_flow_);
     file_locator_flow_.reset();
 
     file_transfer_flow_->stop();
-    file_transfer_flow_listener_.unregister_as_listener(*file_transfer_flow_);
+    file_transfer_flow_listener_->unregister_as_listener(*file_transfer_flow_);
     file_transfer_flow_.reset();
 
     peer_manager_flow_->stop();
-    peer_manager_flow_listener_.unregister_as_listener(*peer_manager_flow_);
+    peer_manager_flow_listener_->unregister_as_listener(*peer_manager_flow_);
     peer_manager_flow_.reset();
 
     file_storage_.reset();

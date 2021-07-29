@@ -17,6 +17,7 @@ target_link_libraries(${TARGET_NAME}
         ${GMOCK_LIB}
         ${GLOG_LIB}
         pthread
-        sand_fakenet)
+        sand_fakenet
+        fakenet)
 
 install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX}/test)

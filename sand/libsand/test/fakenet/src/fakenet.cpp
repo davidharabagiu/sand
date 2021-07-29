@@ -1,9 +1,6 @@
 #include "fakenet.hpp"
 
-FakeNet::FakeNet()
-{
-    next_node(dynamic_assignment);
-}
+FakeNet::FakeNet() = default;
 
 bool FakeNet::next_node(FakeNet::Address addr)
 {

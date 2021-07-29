@@ -3,9 +3,8 @@
 
 #include <memory>
 #include <mutex>
-#include <type_traits>
 
-template<typename T, typename = std::enable_if_t<std::is_default_constructible_v<T>>>
+template<typename T>
 class Singleton
 {
 public:
@@ -31,5 +30,11 @@ private:
     static std::unique_ptr<T> instance_;
     static std::mutex         mutex_;
 };
+
+template<typename T>
+std::unique_ptr<T> Singleton<T>::instance_;
+
+template<typename T>
+std::mutex Singleton<T>::mutex_;
 
 #endif  // SAND_TEST_FAKENET_SINGLETON_HPP_

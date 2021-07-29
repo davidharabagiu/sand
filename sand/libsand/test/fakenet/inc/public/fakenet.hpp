@@ -24,7 +24,7 @@ public:
     static constexpr Address dynamic_assignment = 0;
 
     FakeNet();
-    bool      next_node(Address addr);
+    bool      next_node(Address addr = dynamic_assignment);
     Address   set_sender_ptr(SenderPtr sender);
     Address   set_server_ptr(ServerPtr server);
     ServerPtr get_server_ptr(Address addr) const;

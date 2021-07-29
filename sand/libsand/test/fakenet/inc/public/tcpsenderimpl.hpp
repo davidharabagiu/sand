@@ -3,6 +3,8 @@
 
 #include <boost/asio.hpp>
 
+#include "fakenet.hpp"
+#include "singleton.hpp"
 #include "tcpsender.hpp"
 
 // Forward declarations
@@ -13,7 +15,12 @@ namespace sand::network
 class TCPSenderImpl : public TCPSender
 {
 public:
-    explicit TCPSenderImpl(boost::asio::io_context &io_ctx);
+    // Fake it 'till you make it
+    template<typename... Ts>
+    explicit TCPSenderImpl(Ts &&...)
+        : fake_net_ {Singleton<FakeNet>::get()}
+        , my_address_ {fake_net_.set_sender_ptr(this)}
+    {}
 
     std::future<bool> send(
         IPv4Address to, unsigned short port, const uint8_t *data, size_t len) override;

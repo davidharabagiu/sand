@@ -22,20 +22,22 @@ target_compile_definitions(${TARGET_NAME}
 target_include_directories(${TARGET_NAME}
         PUBLIC "${CMAKE_SOURCE_DIR}/libsand/api/inc/public"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/api/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/config/inc/public"
+        PUBLIC "${CMAKE_SOURCE_DIR}/libsand/config/inc/public"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/config/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/flows/inc/public"
+        PUBLIC "${CMAKE_SOURCE_DIR}/libsand/flows/inc/public"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/flows/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/public"
+        PUBLIC "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/public"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/protocol/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/storage/inc/public"
+        PUBLIC "${CMAKE_SOURCE_DIR}/libsand/storage/inc/public"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/storage/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/public"
+        PUBLIC "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/public"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/crypto/inc/private"
-        PRIVATE "${CMAKE_SOURCE_DIR}/libsand/utils/inc/public"
+        PUBLIC "${CMAKE_SOURCE_DIR}/libsand/utils/inc/public"
         PRIVATE "${CMAKE_SOURCE_DIR}/libsand/utils/inc/private")
 
 find_library(GLOG_LIB glog REQUIRED)
+find_library(CRYPTO_LIB crypto REQUIRED)
 target_link_libraries(${TARGET_NAME}
         ${GLOG_LIB}
+        ${CRYPTO_LIB}
         fakenet)
