@@ -71,7 +71,11 @@ PeerManagerFlowImpl::~PeerManagerFlowImpl()
     inbound_request_dispatcher_->unset_callback<protocol::PushMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::ByeMessage>();
     inbound_request_dispatcher_->unset_callback<protocol::PingMessage>();
-    stop_impl();
+
+    if (state() == State::RUNNING)
+    {
+        stop_impl();
+    }
 }
 
 void PeerManagerFlowImpl::start()
@@ -119,7 +123,7 @@ void PeerManagerFlowImpl::start()
                                 LOG(WARNING) << "No peers were preloaded. Maybe later some will be "
                                                 "available.";
                             }
-                            else if (peers_.size() != size_t(initial_peer_count_))
+                            else if (peers_.size() < size_t(initial_peer_count_))
                             {
                                 LOG(INFO) << "Preloaded peer list with " << peers_.size()
                                           << " addresses, less than the configured amount ("
@@ -478,6 +482,13 @@ void PeerManagerFlowImpl::register_to_dnl_loop(const std::shared_ptr<std::promis
         true);
 }
 
+void PeerManagerFlowImpl::say_bye(network::IPv4Address to)
+{
+    auto bye        = std::make_unique<protocol::ByeMessage>();
+    bye->request_id = rng_.next<protocol::RequestId>();
+    protocol_message_handler_->send(to, std::move(bye));
+}
+
 void PeerManagerFlowImpl::say_bye_to_peers()
 {
     if (state_ != State::STOPPING)
@@ -489,9 +500,13 @@ void PeerManagerFlowImpl::say_bye_to_peers()
 
     for (network::IPv4Address addr : peers_)
     {
-        auto bye        = std::make_unique<protocol::ByeMessage>();
-        bye->request_id = rng_.next<protocol::RequestId>();
-        protocol_message_handler_->send(addr, std::move(bye));
+        say_bye(addr);
+    }
+
+    // Say bye to a DNL node
+    if (auto dnl_addr = dnl_config_->random_pick(); dnl_addr)
+    {
+        say_bye(dnl_addr);
     }
 }
 

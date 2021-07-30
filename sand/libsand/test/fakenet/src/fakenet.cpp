@@ -47,3 +47,9 @@ FakeNet::ServerPtr FakeNet::get_server_ptr(FakeNet::Address addr) const
     }
     return nullptr;
 }
+
+void FakeNet::remove_node(Address addr)
+{
+    std::lock_guard lock {mutex_};
+    network_map_.erase(addr);
+}

@@ -219,6 +219,7 @@ bool SANDNodeImpl::start()
         return false;
     }
 
+    set_state(State::RUNNING);
     return true;
 }
 

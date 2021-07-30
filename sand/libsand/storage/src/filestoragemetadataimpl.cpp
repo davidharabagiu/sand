@@ -144,7 +144,8 @@ void FileStorageMetadataImpl::parse_metadata_file()
 
 void FileStorageMetadataImpl::write_metadata_file() const
 {
-    nlohmann::json json_root;
+    auto json_root = nlohmann::json::array();
+
     for (const auto &[hash, name] : hash_to_name_map_)
     {
         auto &e = json_root.emplace_back();

@@ -7,6 +7,7 @@
 #include "singleton.hpp"
 #include "tcpmessagelistener.hpp"
 #include "tcpserver.hpp"
+#include "threadpool.hpp"
 
 namespace sand::network
 {
@@ -16,9 +17,11 @@ public:
     template<typename... Ts>
     explicit TCPServerImpl(Ts &&...)
         : fake_net_ {Singleton<FakeNet>::get()}
-    {
-        fake_net_.set_server_ptr(this);
-    }
+        , my_address_ {fake_net_.set_server_ptr(this)}
+        , thread_pool_ {1}
+    {}
+
+    ~TCPServerImpl() override;
 
     bool register_listener(std::shared_ptr<TCPMessageListener> listener) override;
     bool unregister_listener(std::shared_ptr<TCPMessageListener> listener) override;
@@ -27,7 +30,9 @@ public:
 
 private:
     FakeNet &                                fake_net_;
+    network::IPv4Address                     my_address_;
     utils::ListenerGroup<TCPMessageListener> listener_group_;
+    utils::ThreadPool                        thread_pool_;
 };
 }  // namespace sand::network
 

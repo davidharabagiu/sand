@@ -4,6 +4,11 @@
 
 namespace sand::network
 {
+TCPSenderImpl::~TCPSenderImpl()
+{
+    fake_net_.remove_node(my_address_);
+}
+
 std::future<bool> TCPSenderImpl::send(
     IPv4Address to, unsigned short /*port*/, const uint8_t *data, size_t len)
 {

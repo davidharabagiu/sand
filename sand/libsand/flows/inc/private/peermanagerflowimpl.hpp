@@ -62,6 +62,7 @@ private:
     void wait_for_reply_confirmation(std::future<bool> future, protocol::RequestId msg_id);
     std::future<bool> register_to_dnl();
     void              register_to_dnl_loop(const std::shared_ptr<std::promise<bool>> &promise);
+    void              say_bye(network::IPv4Address to);
     void              say_bye_to_peers();
     std::future<void> ping_peers();
     std::vector<network::IPv4Address> pick_peers(

@@ -6,14 +6,16 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <tuple>
 #include <vector>
 
 #include "fakenet.hpp"
-#include "iothreadpool.hpp"
 #include "messages.hpp"
+#include "random.hpp"
 #include "sandnode.hpp"
 #include "singleton.hpp"
 #include "tcpmessagelistener.hpp"
@@ -25,9 +27,8 @@ using namespace ::sand;
 using namespace ::sand::network;
 using namespace ::sand::protocol;
 using namespace ::sand::utils;
-using namespace std::literals::chrono_literals;
-
-namespace fs = std::filesystem;
+using namespace ::std::chrono_literals;
+namespace fs = ::std::filesystem;
 
 namespace
 {
@@ -65,6 +66,8 @@ protected:
 
     void TearDown() override
     {
+        dnl_node_sender_.reset();
+        dnl_node_server_.reset();
         fs_cleanup();
         Singleton<FakeNet>::reset();
     }
@@ -107,37 +110,78 @@ protected:
         dnl_node_server_->register_listener(dnl_node_message_listener_);
     }
 
-    void handle_message_as_dnl_node(IPv4Address from, const uint8_t *data, size_t len)
+    void handle_message_as_dnl_node(IPv4Address from, const uint8_t *data, size_t /*len*/)
     {
-        /*
-         * Offload to another thread to allow further processing in the node before a reply will be
-         * received.
-         */
-        thread_pool_.add_job([this, from, request = std::vector<uint8_t>(data, data + len)](
-                                 const CompletionToken &) {
-            std::cout << "Got request of size " << request.size() << " from "
-                      << conversion::to_string(from) << '\n';
-
-            std::this_thread::sleep_for(10ms);
-
-            if (request[0] == uint8_t(MessageCode::PUSH))
+        if (data[0] == uint8_t(MessageCode::PUSH))
+        {
+            // Add to node address list
             {
-                // Add to node address list
+                std::lock_guard lock {mutex_};
                 node_addresses_.push_back(from);
-
-                // Construct reply
-                std::vector<uint8_t> reply(11);
-                reply[0] = uint8_t(MessageCode::REPLY);
-                std::copy_n(request.data() + 1, 8, reply.data() + 1);  // Request ID
-                reply[9]  = uint8_t(StatusCode::OK);
-                reply[10] = uint8_t(MessageCode::PUSH);
-
-                // Send reply
-                ASSERT_TRUE(dnl_node_sender_->send(from, 0, reply.data(), reply.size()).get());
             }
-            else if (request[0] == uint8_t(MessageCode::PULL))
-            {}
-        });
+
+            // Construct reply
+            std::vector<uint8_t> reply(11);
+            reply[0] = uint8_t(MessageCode::REPLY);
+            std::copy_n(data + 1, 8, reply.data() + 1);  // Request ID
+            reply[9]  = uint8_t(StatusCode::OK);
+            reply[10] = uint8_t(MessageCode::PUSH);
+
+            // Send reply
+            ASSERT_TRUE(dnl_node_sender_->send(from, 0, reply.data(), reply.size()).get());
+        }
+        else if (data[0] == uint8_t(MessageCode::PULL))
+        {
+            size_t                   addr_count = data[9];
+            std::vector<IPv4Address> addrs;
+
+            // Pick some nodes
+            {
+                std::lock_guard lock {mutex_};
+                addrs = pick_addresses(addr_count, from);
+            }
+
+            // Construct reply
+            std::vector<uint8_t> reply(12 + 4 * addrs.size());
+            reply[0] = uint8_t(MessageCode::REPLY);
+            std::copy_n(data + 1, 8, reply.data() + 1);  // Request ID
+            reply[9]  = uint8_t(StatusCode::OK);
+            reply[10] = uint8_t(MessageCode::PULL);
+            reply[11] = uint8_t(addrs.size());
+            for (size_t i = 0; i != addrs.size(); ++i)
+            {
+                std::copy_n(
+                    reinterpret_cast<const uint8_t *>(&addrs[i]), 4, reply.data() + 12 + i * 4);
+            }
+
+            // Send reply
+            ASSERT_TRUE(dnl_node_sender_->send(from, 0, reply.data(), reply.size()).get());
+        }
+        else if (data[0] == uint8_t(MessageCode::BYE))
+        {
+            std::lock_guard lock {mutex_};
+            ++bye_msg_count_;
+        }
+        else
+        {
+            FAIL();
+        }
+    }
+
+    std::vector<IPv4Address> pick_addresses(size_t cnt, IPv4Address exclude)
+    {
+        std::set<IPv4Address> result;
+        cnt = std::min(cnt, node_addresses_.size() - 1);
+        for (size_t i = 0; i != cnt; ++i)
+        {
+            IPv4Address a;
+            do
+            {
+                a = node_addresses_[rng_.next(node_addresses_.size() - 1)];
+            } while (result.count(a) != 0 || a == exclude);
+            result.insert(a);
+        }
+        return std::vector<IPv4Address>(result.cbegin(), result.cend());
     }
 
     static size_t number_of_nodes()
@@ -158,7 +202,9 @@ protected:
     IPv4Address                                 dnl_address_;
     std::vector<std::unique_ptr<SANDNode>>      nodes_;
     std::vector<IPv4Address>                    node_addresses_;
-    IOThreadPool                                thread_pool_;
+    size_t                                      bye_msg_count_ = 0;
+    Random                                      rng_;
+    std::mutex                                  mutex_;
 
     static constexpr char const *config_file_name_ = "config.json";
 
@@ -201,7 +247,7 @@ private:
 };
 }  // namespace
 
-TEST_P(SandNodeTest, Init_Transfer_Uninit)
+TEST_P(SandNodeTest, Start_Transfer_Stop)
 {
     // Init nodes
     for (size_t i = 0; i != number_of_nodes(); ++i)
@@ -212,12 +258,20 @@ TEST_P(SandNodeTest, Init_Transfer_Uninit)
         nodes_.push_back(std::move(node));
     }
 
+    // Wait for all nodes to fill their peer list
+    std::this_thread::sleep_for(1s);
+
     // Stop nodes
-    for (const auto &node : nodes_)
+    for (auto &node : nodes_)
     {
         ASSERT_TRUE(node->stop());
     }
     nodes_.clear();
+
+    // Wait for all BYE messages to arrive
+    std::this_thread::sleep_for(1s);
+
+    ASSERT_EQ(number_of_nodes(), bye_msg_count_);
 }
 
 INSTANTIATE_TEST_SUITE_P(SandNodeTests, SandNodeTest, Values(std::make_tuple(20, 512)));

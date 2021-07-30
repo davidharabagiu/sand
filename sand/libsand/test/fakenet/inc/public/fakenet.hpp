@@ -28,6 +28,7 @@ public:
     Address   set_sender_ptr(SenderPtr sender);
     Address   set_server_ptr(ServerPtr server);
     ServerPtr get_server_ptr(Address addr) const;
+    void      remove_node(Address addr);
 
 private:
     struct Node

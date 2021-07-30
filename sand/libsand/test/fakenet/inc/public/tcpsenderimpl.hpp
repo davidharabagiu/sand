@@ -22,6 +22,8 @@ public:
         , my_address_ {fake_net_.set_sender_ptr(this)}
     {}
 
+    ~TCPSenderImpl() override;
+
     std::future<bool> send(
         IPv4Address to, unsigned short port, const uint8_t *data, size_t len) override;
 
