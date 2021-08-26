@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <random>
 #include <type_traits>
 
@@ -14,33 +16,45 @@ class Random
 {
 public:
     Random();
-    void reseed();
+    static void reseed();
 
     template<typename Int = int>
-    auto next(Int max = std::numeric_limits<Int>::max())
+    static auto next(Int max = std::numeric_limits<Int>::max())
         -> std::enable_if_t<std::is_integral_v<Int>, Int>
     {
         return next<Int>(0, max);
     }
 
     template<typename Int = int>
-    auto next(Int min, Int max) -> std::enable_if_t<std::is_integral_v<Int>, Int>
+    static auto next(Int min, Int max) -> std::enable_if_t<std::is_integral_v<Int>, Int>
     {
         std::uniform_int_distribution<Int> d {min, max};
-        return d(prng_);
+        std::lock_guard                    lock {state_mutex_};
+        return d(state_->prng);
     }
 
     template<typename Iter>
-    auto shuffle(Iter begin, Iter end)
+    static auto shuffle(Iter begin, Iter end)
         -> std::enable_if_t<std::is_same_v<typename std::iterator_traits<Iter>::iterator_category,
             std::random_access_iterator_tag>>
     {
-        std::shuffle(begin, end, prng_);
+        std::lock_guard lock {state_mutex_};
+        std::shuffle(begin, end, state_->prng);
     }
 
 private:
-    std::random_device trng_;
-    std::mt19937_64    prng_;
+    struct State
+    {
+        State()
+            : prng(trng())
+        {}
+
+        std::random_device trng;
+        std::mt19937_64    prng;
+    };
+
+    static std::unique_ptr<State> state_;
+    static std::mutex             state_mutex_;
 };
 }  // namespace sand::utils
 

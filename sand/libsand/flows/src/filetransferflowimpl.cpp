@@ -218,11 +218,8 @@ std::future<TransferHandle> FileTransferFlowImpl::create_offer(const SearchHandl
                                                                 max_part_size_);
 
                 protocol::PartSize padded_part_size = part_size;
-                if (padded_part_size % encryption_block_size != 0)
-                {
-                    padded_part_size =
-                        (padded_part_size / encryption_block_size + 1) * encryption_block_size;
-                }
+                padded_part_size =
+                    (padded_part_size / encryption_block_size + 1) * encryption_block_size;
 
                 auto request_drop_point_msg = std::make_unique<protocol::RequestDropPointMessage>();
                 request_drop_point_msg->request_id = rng_.next<protocol::RequestId>();
@@ -336,7 +333,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                                << " refused transfer";
                 LOG(WARNING) << transfer_error.str();
             }
-            else
+            else if (reply->status_code != protocol::StatusCode::OK)
             {
                 transfer_error << "Unknown error while initiating upload to drop point "
                                << network::conversion::to_string(part_data.drop_point);
@@ -395,12 +392,13 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                 DEFER(promise.set_value(success));
 
                 size_t               bytes_transferred = 0;
-                std::vector<uint8_t> plain_text(max_chunk_size_);
+                std::vector<uint8_t> plain_text;
 
                 while (bytes_transferred != part_data.part_size)
                 {
                     size_t chunk_size =
                         std::min(max_chunk_size_, part_data.part_size - bytes_transferred);
+                    plain_text.resize(chunk_size);
 
                     bool read_ok = file_storage_->read_file(file_handle,
                         part_data.part_offset + bytes_transferred, chunk_size, plain_text.data());
@@ -467,7 +465,7 @@ bool FileTransferFlowImpl::send_file(const TransferHandle &transfer_handle)
                                        << " refused transfer";
                         LOG(WARNING) << transfer_error.str();
                     }
-                    else
+                    else if (reply->status_code != protocol::StatusCode::OK)
                     {
                         transfer_error << "Unknown error while uploading to drop point "
                                        << network::conversion::to_string(part_data.drop_point);
@@ -590,11 +588,8 @@ bool FileTransferFlowImpl::receive_file(
                 }
 
                 protocol::PartSize padded_part_size = next_part_it->part_size;
-                if (padded_part_size % encryption_block_size != 0)
-                {
-                    padded_part_size =
-                        (padded_part_size / encryption_block_size + 1) * encryption_block_size;
-                }
+                padded_part_size =
+                    (padded_part_size / encryption_block_size + 1) * encryption_block_size;
 
                 auto request_lift_proxy_msg = std::make_unique<protocol::RequestLiftProxyMessage>();
                 request_lift_proxy_msg->request_id = rng_.next<protocol::RequestId>();
@@ -678,7 +673,7 @@ bool FileTransferFlowImpl::receive_file(
                                << " refused transfer";
                 LOG(WARNING) << transfer_error.str();
             }
-            else
+            else if (reply->status_code != protocol::StatusCode::OK)
             {
                 transfer_error << "Unknown error while trying to reach lift proxy "
                                << network::conversion::to_string(*lift_proxies_it);
@@ -1261,7 +1256,8 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
     }
 
     // Write to file
-    if (!file_storage_->write_file(transfer.file_handle, chunk_pos, chunk_size, plain_text.data()))
+    if (file_storage_->write_file(transfer.file_handle, chunk_pos, chunk_size, plain_text.data()) !=
+        chunk_size)
     {
         LOG(ERROR) << "Cannot write to file " << file_hash;
         cleanup     = true;
@@ -1288,8 +1284,6 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
     if (transfer.bytes_transferred >= transfer.file_size)
     {
         // Transfer done
-        listener_group_.notify(
-            &FileTransferFlowListener::on_transfer_completed, transfer.transfer_handle);
         cleanup = true;
     }
 
@@ -1307,6 +1301,13 @@ void FileTransferFlowImpl::handle_upload_as_endpoint(
         std::lock_guard lock {mutex_};
         inbound_transfers_.erase(offer_id);
         pending_transfer_cancellations_.erase(offer_id);
+    }
+
+    if (cleanup && !delete_file)
+    {
+        // Transfer done
+        listener_group_.notify(
+            &FileTransferFlowListener::on_transfer_completed, transfer.transfer_handle);
     }
 }
 

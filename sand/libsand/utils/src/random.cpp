@@ -2,13 +2,21 @@
 
 namespace sand::utils
 {
+std::unique_ptr<Random::State> Random::state_;
+std::mutex                     Random::state_mutex_;
+
 Random::Random()
-    : prng_(trng_())
 {
+    std::lock_guard lock {state_mutex_};
+    if (!state_)
+    {
+        state_ = std::make_unique<State>();
+    }
 }
 
 void Random::reseed()
 {
-    prng_.seed(trng_());
+    std::lock_guard lock {state_mutex_};
+    state_->prng.seed(state_->trng());
 }
 }  // namespace sand::utils

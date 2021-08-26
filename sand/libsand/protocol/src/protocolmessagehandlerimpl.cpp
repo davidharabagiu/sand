@@ -1,5 +1,6 @@
 #include "protocolmessagehandlerimpl.hpp"
 
+#include <algorithm>
 #include <utility>
 
 #include <glog/logging.h>
@@ -10,6 +11,7 @@
 #include "protocolmessagelistener.hpp"
 #include "tcpsender.hpp"
 #include "tcpserver.hpp"
+#include "timer.hpp"
 
 namespace sand::protocol
 {
@@ -58,6 +60,7 @@ ProtocolMessageHandlerImpl::ProtocolMessageHandlerImpl(
     , message_serializer_ {std::move(message_serializer)}
     , io_executer_ {std::move(io_executer)}
     , port_ {static_cast<unsigned short>(cfg.get_integer(config::ConfigKey::PORT))}
+    , request_timeout_ {std::max(0LL, cfg.get_integer(config::ConfigKey::REQUEST_TIMEOUT))}
 {}
 
 ProtocolMessageHandlerImpl::~ProtocolMessageHandlerImpl()
@@ -89,14 +92,12 @@ void ProtocolMessageHandlerImpl::uninitialize()
 bool ProtocolMessageHandlerImpl::register_message_listener(
     const std::shared_ptr<ProtocolMessageListener> &listener)
 {
-    std::lock_guard<std::mutex> _lock {mutex_};
     return listener_group_.add(listener);
 }
 
 bool ProtocolMessageHandlerImpl::unregister_message_listener(
     const std::shared_ptr<ProtocolMessageListener> &listener)
 {
-    std::lock_guard<std::mutex> _lock {mutex_};
     return listener_group_.remove(listener);
 }
 
@@ -106,62 +107,68 @@ std::future<std::unique_ptr<BasicReply>> ProtocolMessageHandlerImpl::send(
     auto reply_promise = std::make_shared<std::promise<std::unique_ptr<BasicReply>>>();
     std::future<std::unique_ptr<BasicReply>> reply_future = reply_promise->get_future();
 
+    auto message_code = message->message_code;
+    auto request_id   = message->request_id;
+
     {
         std::lock_guard<std::mutex> _lock {mutex_};
-        if (outgoing_request_ids_.count(message->request_id) != 0 ||
-            pending_replies_.count(message->request_id) != 0)
+        if (pending_replies_.count(message->request_id) != 0)
         {
             LOG(ERROR) << "Request with id " << message->request_id << " already sent";
             return {};  // invalid future
         }
-        outgoing_request_ids_.insert(message->request_id);
+
+        if (message->message_code != MessageCode::BYE)
+        {
+            pending_replies_.emplace(message->request_id,
+                PendingReply {reply_promise, message->message_code, to,
+                    add_timeout(request_timeout_, [this, reply_promise, message_code, request_id] {
+                        auto reply         = std::make_unique<BasicReply>(message_code);
+                        reply->request_id  = request_id;
+                        reply->status_code = StatusCode::TIMEOUT;
+                        reply_promise->set_value(std::move(reply));
+
+                        std::lock_guard lock {mutex_};
+                        pending_replies_.erase(request_id);
+                    })});
+        }
     }
 
-    auto bytes              = message->serialize(message_serializer_);
-    auto send_result_future = std::make_shared<std::future<bool>>(
+    auto bytes       = message->serialize(message_serializer_);
+    auto send_future = std::make_shared<std::future<bool>>(
         tcp_sender_->send(to, port_, bytes.data(), bytes.size()));
 
-    std::shared_ptr<Message> shared_message {std::move(message)};
-
-    {
-        std::lock_guard lock {mutex_};
-        running_jobs_.insert(io_executer_->add_job(
-            [this, send_result_future, message = shared_message, reply_promise, to](
-                const utils::CompletionToken &completion_token) {
-                DEFER({
-                    std::lock_guard lock {mutex_};
-                    running_jobs_.erase(completion_token);
-                });
-
-                bool success = send_result_future->get();
-
-                if (completion_token.is_cancelled())
+    add_job(io_executer_, [this, reply_promise, send_future, message_code, request_id](
+                              const utils::CompletionToken &completion_token) {
+        bool success = send_future->get();
+        if (completion_token.is_cancelled())
+        {
+            return;
+        }
+        if (message_code == MessageCode::BYE)
+        {
+            reply_promise->set_value({});
+            return;
+        }
+        if (!success)
+        {
+            {
+                std::lock_guard lock {mutex_};
+                auto            it = pending_replies_.find(request_id);
+                if (it != pending_replies_.end())
                 {
-                    reply_promise->set_value(nullptr);
-                    return;
+                    it->second.timeout->stop();
+                    timeouts_.erase(it->second.timeout);
+                    pending_replies_.erase(it);
                 }
+            }
 
-                std::lock_guard<std::mutex> _lock {mutex_};
-                outgoing_request_ids_.erase(message->request_id);
-
-                if (message->message_code == MessageCode::BYE)
-                {
-                    reply_promise->set_value(nullptr);
-                }
-                else if (success)
-                {
-                    pending_replies_.emplace(message->request_id,
-                        PendingReply {reply_promise, message->message_code, to});
-                }
-                else
-                {
-                    auto reply         = std::make_unique<BasicReply>(message->message_code);
-                    reply->request_id  = message->request_id;
-                    reply->status_code = StatusCode::UNREACHABLE;
-                    reply_promise->set_value(std::move(reply));
-                }
-            }));
-    }
+            auto reply         = std::make_unique<BasicReply>(message_code);
+            reply->request_id  = request_id;
+            reply->status_code = StatusCode::UNREACHABLE;
+            reply_promise->set_value(std::move(reply));
+        }
+    });
 
     return reply_future;
 }
@@ -180,6 +187,36 @@ void ProtocolMessageHandlerImpl::on_message_received(
     message_serializer_->deserialize(std::vector<uint8_t>(data, data + len), receptor);
 }
 
+utils::CompletionToken ProtocolMessageHandlerImpl::add_job(
+    const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job)
+{
+    std::lock_guard lock {mutex_};
+    return *running_jobs_
+                .insert(executer->add_job(
+                    [this, job = std::move(job)](const utils::CompletionToken &completion_token) {
+                        job(completion_token);
+                        std::lock_guard lock {mutex_};
+                        running_jobs_.erase(completion_token);
+                    }))
+                .first;
+}
+
+std::shared_ptr<utils::Timer> ProtocolMessageHandlerImpl::add_timeout(
+    std::chrono::seconds duration, std::function<void()> &&func)
+{
+    decltype(timeouts_)::iterator it;
+    std::tie(it, std::ignore) = timeouts_.emplace(std::make_shared<utils::Timer>(io_executer_));
+    (*it)->start(
+        duration, [this, timer = std::weak_ptr<utils::Timer>(*it), func = std::move(func)] {
+            add_job(io_executer_, [this, timer, func](const auto & /*completion_token*/) {
+                func();
+                std::lock_guard lock {mutex_};
+                timeouts_.erase(timer.lock());
+            });
+        });
+    return *it;
+}
+
 ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::
     RequestDeserializationResultReceptorImpl(
         ProtocolMessageHandlerImpl &parent, network::IPv4Address message_source)
@@ -190,112 +227,96 @@ ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const PullMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(PullMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const PushMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(PushMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const ByeMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(ByeMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const DeadMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(DeadMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const PingMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(PingMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const DNLSyncMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(DNLSyncMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const SearchMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(SearchMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const OfferMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(OfferMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const UncacheMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(UncacheMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const ConfirmTransferMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(ConfirmTransferMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const RequestDropPointMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(RequestDropPointMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const RequestLiftProxyMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(RequestLiftProxyMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const InitUploadMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(InitUploadMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const UploadMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(UploadMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const FetchMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(FetchMessageNotification, message_source_, message);
 }
 
 void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::deserialized(
     const InitDownloadMessage &message)
 {
-    std::lock_guard<std::mutex> _lock {parent_.mutex_};
     parent_.listener_group_.notify(InitDownloadMessageNotification, message_source_, message);
 }
 
@@ -339,6 +360,9 @@ void ProtocolMessageHandlerImpl::RequestDeserializationResultReceptorImpl::proce
                      << int(it->second.message_code) << ")";
         return;
     }
+
+    it->second.timeout->stop();
+    parent_.timeouts_.erase(it->second.timeout);
     it->second.promise->set_value(std::move(reply));
     parent_.pending_replies_.erase(it);
 }

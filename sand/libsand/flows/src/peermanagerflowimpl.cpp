@@ -664,24 +664,25 @@ void PeerManagerFlowImpl::find_new_peers_loop(const std::shared_ptr<FindNewPeers
             return;
         }
 
-        auto pull_reply = dynamic_cast<protocol::PullReply *>(reply.get());
-        if (!pull_reply || pull_reply->status_code != protocol::StatusCode::OK)
-        {
-            if (!pull_reply)
-            {
-                LOG(WARNING) << "Cannot interpret reply as PullReply";
-            }
-            else
-            {
-                LOG(INFO) << "Peer " << network::conversion::to_string(ctx->peers[ctx->index])
-                          << " did not respond to PULL";
-            }
-
+        auto pull_fail_cont = [this, ctx] {
             ++ctx->index;
-
             add_job(executer_,
                 [this, ctx](const utils::CompletionToken &) { find_new_peers_loop(ctx); });
+        };
 
+        if (reply->status_code != protocol::StatusCode::OK)
+        {
+            LOG(INFO) << "Peer " << network::conversion::to_string(ctx->peers[ctx->index])
+                      << " did not respond to PULL";
+            pull_fail_cont();
+            return;
+        }
+
+        auto pull_reply = dynamic_cast<protocol::PullReply *>(reply.get());
+        if (!pull_reply)
+        {
+            LOG(WARNING) << "Cannot interpret reply as PullReply";
+            pull_fail_cont();
             return;
         }
 

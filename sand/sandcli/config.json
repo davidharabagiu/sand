@@ -1,6 +1,7 @@
 {
   "network": {
-    "port": 12289
+    "port": 12289,
+    "request_timeout": 5
   },
   "dnl": {
     "known_dnl_nodes_list_file": "dnl_node_list.txt"

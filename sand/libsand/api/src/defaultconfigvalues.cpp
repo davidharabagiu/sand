@@ -9,6 +9,7 @@ namespace sand
 DefaultConfigValues::DefaultConfigValues()
     : default_values_ {/* PORT */ 12289LL,
           /* KNOWN_DNL_NODES_LIST_FILE */ std::string {"dnl_node_list.txt"},
+          /* REQUEST_TIMEOUT */ 5LL,
           /* INITIAL_PEER_COUNT */ 10LL,
           /* SEARCH_PROPAGATION_DEGREE */ 3LL, /* SEARCH_TIMEOUT */ 60LL /* = 1 minute */,
           /* SEARCH_MESSAGE_TTL */ 10LL, /* ROUTING_TABLE_ENTRY_TIMEOUT */ 60LL /* = 1 minute */,

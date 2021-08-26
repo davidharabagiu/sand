@@ -15,6 +15,7 @@ public:
 
         PORT = FIRST_KEY,
         KNOWN_DNL_NODES_LIST_FILE,
+        REQUEST_TIMEOUT,
         INITIAL_PEER_COUNT,
         SEARCH_PROPAGATION_DEGREE,
         SEARCH_TIMEOUT,
@@ -68,11 +69,12 @@ private:
     EnumType key_;
 
     static constexpr char const *string_vals[] {"port", "known_dnl_nodes_list_file",
-        "initial_peer_count", "search_propagation_degree", "search_timeout", "search_message_ttl",
-        "routing_table_entry_timeout", "recv_file_timeout", "drop_point_request_timeout",
-        "drop_point_transfer_timeout", "lift_proxy_request_timeout", "lift_proxy_transfer_timeout",
-        "confirm_transfer_timeout", "metadata_file", "file_storage_dir", "max_part_size",
-        "max_chunk_size", "max_temp_storage_size", "dnl_sync_period"};
+        "request_timeout", "initial_peer_count", "search_propagation_degree", "search_timeout",
+        "search_message_ttl", "routing_table_entry_timeout", "recv_file_timeout",
+        "drop_point_request_timeout", "drop_point_transfer_timeout", "lift_proxy_request_timeout",
+        "lift_proxy_transfer_timeout", "confirm_transfer_timeout", "metadata_file",
+        "file_storage_dir", "max_part_size", "max_chunk_size", "max_temp_storage_size",
+        "dnl_sync_period"};
 };
 }  // namespace sand::config
 

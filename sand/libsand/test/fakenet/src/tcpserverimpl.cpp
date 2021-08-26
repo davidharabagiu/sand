@@ -8,7 +8,7 @@ namespace sand::network
 {
 namespace
 {
-constexpr long network_time_ms {25};
+constexpr long network_time_ms {10};
 }  // namespace
 
 TCPServerImpl::~TCPServerImpl()

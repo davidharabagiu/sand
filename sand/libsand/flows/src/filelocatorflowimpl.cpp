@@ -374,7 +374,7 @@ bool FileLocatorFlowImpl::send_offer(const TransferHandle &transfer_handle)
         }
 
         to = std::get<0>(it->second);
-        offer_routing_table_.erase(it);
+        // offer_routing_table_.erase(it);
     }
 
     // Create Offer message
@@ -468,7 +468,7 @@ bool FileLocatorFlowImpl::confirm_transfer(const TransferHandle &transfer_handle
             if (reply->status_code != protocol::StatusCode::OK)
             {
                 LOG(WARNING) << "ConfirmTransfer message for offer " << offer_id
-                             << " could not be sent";
+                             << " could not be sent. Status code = " << int(reply->status_code);
             }
         });
     });
@@ -488,7 +488,6 @@ void FileLocatorFlowImpl::set_state(State new_state)
     if (state != new_state)
     {
         state_ = new_state;
-        std::lock_guard lock {mutex_};
         listener_group_.notify(&FileLocatorFlowListener::on_state_changed, new_state);
     }
 }
@@ -497,6 +496,22 @@ void FileLocatorFlowImpl::handle_search(
     network::IPv4Address from, const protocol::SearchMessage &msg)
 {
     add_job(executer_, [this, from, msg](const auto & /*completion_token*/) {
+        auto reply        = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id = msg.request_id;
+
+        {
+            std::unique_lock lock {mutex_};
+            if (offer_routing_table_.count(msg.search_id) != 0)
+            {
+                lock.unlock();
+                LOG(INFO) << "Search message propagation loop detected, not forwarding";
+                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+                wait_for_reply_confirmation(
+                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+                return;
+            }
+        }
+
         std::string file_hash = file_hash_interpreter_->encode(msg.file_hash);
         if (file_hash.empty())
         {
@@ -522,8 +537,6 @@ void FileLocatorFlowImpl::handle_search(
             }
             else
             {
-                auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-                reply->request_id  = msg.request_id;
                 reply->status_code = protocol::StatusCode::PROPAGATION_LIMIT;
                 wait_for_reply_confirmation(
                     protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
@@ -531,15 +544,19 @@ void FileLocatorFlowImpl::handle_search(
         }
         else
         {
-            add_offer_routing_table_entry(from, msg.search_id, file_hash);
+            if (!add_offer_routing_table_entry(from, msg.search_id, file_hash))
+            {
+                LOG(INFO) << "Search message propagation loop detected, not forwarding";
+                reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+                wait_for_reply_confirmation(
+                    protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+                return;
+            }
 
-            auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
-            reply->request_id  = msg.request_id;
             reply->status_code = protocol::StatusCode::OK;
             wait_for_reply_confirmation(
                 protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
 
-            std::lock_guard lock {mutex_};
             listener_group_.notify(&FileLocatorFlowListener::on_file_wanted,
                 SearchHandle {std::make_shared<SearchHandleImpl>(
                     file_hash, msg.search_id, msg.sender_public_key)});
@@ -606,23 +623,22 @@ void FileLocatorFlowImpl::handle_offer(network::IPv4Address from, const protocol
                 return;
             }
 
+            TransferHandle transfer_handle {
+                std::make_shared<TransferHandleImpl>(*ongoing_search_it->second.data(),
+                    msg.offer_id, secret_data.transfer_key, secret_data.parts)};
+
+            // Stop search
+            cancel_search(ongoing_search_it->second);
+
             add_confirm_tx_routing_table_entry(from, msg.offer_id);
 
             {
                 wait_for_reply_confirmation(
                     protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
 
-                std::lock_guard lock {mutex_};
-
                 // Notify
-                listener_group_.notify(&FileLocatorFlowListener::on_file_found,
-                    TransferHandle {
-                        std::make_shared<TransferHandleImpl>(*ongoing_search_it->second.data(),
-                            msg.offer_id, secret_data.transfer_key, secret_data.parts)});
+                listener_group_.notify(&FileLocatorFlowListener::on_file_found, transfer_handle);
             }
-
-            // Stop search
-            cancel_search(ongoing_search_it->second);
         }
     });
 }
@@ -740,8 +756,11 @@ void FileLocatorFlowImpl::handle_confirm_transfer(
             wait_for_reply_confirmation(
                 protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
 
-            std::lock_guard lock {mutex_};
-            confirm_tx_routing_table_.erase(msg.offer_id);
+            {
+                std::lock_guard lock {mutex_};
+                confirm_tx_routing_table_.erase(msg.offer_id);
+            }
+
             listener_group_.notify(
                 &FileLocatorFlowListener::on_transfer_confirmed, transfer_handle);
         }
@@ -783,15 +802,6 @@ utils::CompletionToken FileLocatorFlowImpl::add_job(
 void FileLocatorFlowImpl::forward_search_messsage(
     network::IPv4Address from, const protocol::SearchMessage &msg)
 {
-    {
-        std::lock_guard lock {mutex_};
-        if (offer_routing_table_.count(msg.search_id) != 0)
-        {
-            LOG(INFO) << "Search message propagation loop detected, not forwarding";
-            return;
-        }
-    }
-
     forward_search_message_loop(from, msg);
 }
 
@@ -799,7 +809,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
     network::IPv4Address from, const protocol::SearchMessage &msg)
 {
     auto proceed_with_search = [this](const std::vector<network::IPv4Address> &peers,
-                                   const protocol::SearchMessage &msg, network::IPv4Address from) {
+                                   const protocol::SearchMessage &             msg) {
         // Send Search message
         auto reply_futures = std::make_shared<std::vector<
             std::pair<network::IPv4Address, std::future<std::unique_ptr<protocol::BasicReply>>>>>();
@@ -813,7 +823,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
                 peer, protocol_message_handler_->send(peer, std::move(unique_msg)));
         }
 
-        add_job(io_executer_, [this, from, msg, reply_futures](const auto &completion_token) {
+        add_job(io_executer_, [msg, reply_futures](const auto &completion_token) {
             // Check replies
             bool success = false;
 
@@ -831,21 +841,25 @@ void FileLocatorFlowImpl::forward_search_message_loop(
                 }
             }
 
-            if (success)
+            if (!success)
             {
-                add_job(executer_, [this, msg, from](const auto & /*completion_token*/) {
-                    add_offer_routing_table_entry(
-                        from, msg.search_id, file_hash_interpreter_->encode(msg.file_hash));
-                });
-            }
-            else
-            {
-                LOG(WARNING) << "Could not forward Search message";
+                LOG(INFO) << "Search message could not be forwarded";
             }
         });
     };
 
     std::string file_hash = file_hash_interpreter_->encode(msg.file_hash);
+    if (!add_offer_routing_table_entry(
+            from, msg.search_id, file_hash_interpreter_->encode(msg.file_hash)))
+    {
+        LOG(INFO) << "Search message propagation loop detected, not forwarding";
+        auto reply         = std::make_unique<protocol::BasicReply>(msg.message_code);
+        reply->request_id  = msg.request_id;
+        reply->status_code = protocol::StatusCode::CANNOT_FORWARD;
+        wait_for_reply_confirmation(
+            protocol_message_handler_->send_reply(from, std::move(reply)), msg.request_id);
+        return;
+    }
 
     bool from_cache = false;
 #ifdef ENABLE_EXPERIMENTAL_SEARCH_CACHE
@@ -867,7 +881,8 @@ void FileLocatorFlowImpl::forward_search_message_loop(
     if (!from_cache)
     {
         // Find some peers
-        auto peers_list_future = peer_address_provider_->get_peers(search_propagation_degree_);
+        auto peers_list_future =
+            peer_address_provider_->get_peers(search_propagation_degree_, {from});
         add_job(io_executer_, [this, proceed_with_search, from, msg,
                                   peers_list_future = std::make_shared<decltype(peers_list_future)>(
                                       std::move(peers_list_future))](const auto &completion_token) {
@@ -898,7 +913,7 @@ void FileLocatorFlowImpl::forward_search_message_loop(
                     return;
                 }
 
-                proceed_with_search(peers, msg, from);
+                proceed_with_search(peers, msg);
             });
         });
     }
@@ -976,7 +991,7 @@ void FileLocatorFlowImpl::forward_offer_message(
         }
 
         forward_to = std::get<0>(it->second);
-        offer_routing_table_.erase(it);
+        // offer_routing_table_.erase(it);
     }
 
     wait_for_reply_confirmation(
@@ -1056,14 +1071,15 @@ void FileLocatorFlowImpl::forward_confirm_transfer_message(
     });
 }
 
-void FileLocatorFlowImpl::add_offer_routing_table_entry(
+bool FileLocatorFlowImpl::add_offer_routing_table_entry(
     network::IPv4Address from, protocol::SearchId search_id, const std::string &file_hash)
 {
-    std::lock_guard lock {mutex_};
-
-    if (!offer_routing_table_.emplace(search_id, std::make_tuple(from, file_hash)).second)
     {
-        return;
+        std::lock_guard lock {mutex_};
+        if (!offer_routing_table_.emplace(search_id, std::make_tuple(from, file_hash)).second)
+        {
+            return false;
+        }
     }
 
     if (routing_table_entry_expiration_time_sec_ > 0)
@@ -1075,16 +1091,21 @@ void FileLocatorFlowImpl::add_offer_routing_table_entry(
                 offer_routing_table_.erase(search_id);
             });
     }
+
+    return true;
 }
 
 void FileLocatorFlowImpl::add_confirm_tx_routing_table_entry(
     network::IPv4Address from, protocol::OfferId offer_id)
 {
-    std::lock_guard lock {mutex_};
-
-    if (!confirm_tx_routing_table_.emplace(offer_id, from).second)
     {
-        return;
+        std::lock_guard lock {mutex_};
+
+        if (!confirm_tx_routing_table_.emplace(offer_id, from).second)
+        {
+            LOG(ERROR) << "Cannot add confirm_tx routing table entry";
+            return;
+        }
     }
 
     if (routing_table_entry_expiration_time_sec_ > 0)

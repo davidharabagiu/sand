@@ -3,11 +3,11 @@
 
 #include "address.hpp"
 #include "fakenet.hpp"
+#include "iothreadpool.hpp"
 #include "listenergroup.hpp"
 #include "singleton.hpp"
 #include "tcpmessagelistener.hpp"
 #include "tcpserver.hpp"
-#include "threadpool.hpp"
 
 namespace sand::network
 {
@@ -18,7 +18,6 @@ public:
     explicit TCPServerImpl(Ts &&...)
         : fake_net_ {Singleton<FakeNet>::get()}
         , my_address_ {fake_net_.set_server_ptr(this)}
-        , thread_pool_ {1}
     {}
 
     ~TCPServerImpl() override;
@@ -32,7 +31,7 @@ private:
     FakeNet &                                fake_net_;
     network::IPv4Address                     my_address_;
     utils::ListenerGroup<TCPMessageListener> listener_group_;
-    utils::ThreadPool                        thread_pool_;
+    utils::IOThreadPool                      thread_pool_;
 };
 }  // namespace sand::network
 

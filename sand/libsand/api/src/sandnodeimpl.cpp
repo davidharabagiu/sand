@@ -322,13 +322,23 @@ bool SANDNodeImpl::download_file(
 
         if (!current_download_)
         {
+            state_ = State::RUNNING;
             error_string =
                 "Timeout exceeded and the file was not found - you can try your luck again later";
             return false;
         }
 
+        if (!file_locator_flow_->confirm_transfer(current_download_))
+        {
+            state_       = State::RUNNING;
+            error_string = "Cannot confirm transfer, check the logs for more details "
+                           "about this problem";
+            return false;
+        }
+
         if (!file_transfer_flow_->receive_file(current_download_, file_name))
         {
+            state_       = State::RUNNING;
             error_string = "Cannot start downloading this file, check the logs for more details "
                            "about this problem";
             return false;
@@ -350,6 +360,7 @@ bool SANDNodeImpl::download_file(
 
         if (!latest_download_succeeded_)
         {
+            state_       = State::RUNNING;
             error_string = std::move(latest_download_error_);
             return false;
         }
@@ -418,7 +429,7 @@ void SANDNodeImpl::on_file_wanted(const flows::SearchHandle &search_handle)
 
     if (upload_state_ != UploadState::IDLE)
     {
-        LOG(INFO) << "Upload already in progress or pending upload, ignoring request";
+        // LOG(INFO) << "Upload already in progress or pending upload, ignoring request";
         return;
     }
 

@@ -5,7 +5,8 @@
 int main(int argc, char **argv)
 {
     ::google::InitGoogleLogging(argv[0]);
-    FLAGS_logtostderr = true;
+    FLAGS_logtostderr      = true;
+    fLI::FLAGS_minloglevel = 1;
 
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

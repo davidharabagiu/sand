@@ -105,7 +105,7 @@ private:
     void forward_confirm_transfer_message(
         network::IPv4Address from, const protocol::ConfirmTransferMessage &msg);
 
-    void add_offer_routing_table_entry(
+    bool add_offer_routing_table_entry(
         network::IPv4Address from, protocol::SearchId search_id, const std::string &file_hash);
     void add_confirm_tx_routing_table_entry(network::IPv4Address from, protocol::OfferId offer_id);
 

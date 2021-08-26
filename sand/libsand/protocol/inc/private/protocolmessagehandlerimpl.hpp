@@ -1,6 +1,7 @@
 #ifndef SAND_PROTOCOL_PROTOCOLMESSAGEHANDLERIMPL_HPP_
 #define SAND_PROTOCOL_PROTOCOLMESSAGEHANDLERIMPL_HPP_
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -25,6 +26,12 @@ namespace sand::config
 // Forward declarations
 class Config;
 }  // namespace sand::config
+
+namespace sand::utils
+{
+// Forward declarations
+class Timer;
+}  // namespace sand::utils
 
 namespace sand::protocol
 {
@@ -97,7 +104,13 @@ private:
         std::shared_ptr<std::promise<std::unique_ptr<BasicReply>>> promise;
         MessageCode                                                message_code;
         network::IPv4Address                                       from;
+        std::shared_ptr<utils::Timer>                              timeout;
     };
+
+    utils::CompletionToken add_job(
+        const std::shared_ptr<utils::Executer> &executer, utils::Executer::Job &&job);
+    std::shared_ptr<utils::Timer> add_timeout(
+        std::chrono::seconds duration, std::function<void()> &&func);
 
     utils::ListenerGroup<ProtocolMessageListener>  listener_group_;
     const std::shared_ptr<network::TCPSender>      tcp_sender_;
@@ -105,9 +118,10 @@ private:
     const std::shared_ptr<const MessageSerializer> message_serializer_;
     const std::shared_ptr<utils::Executer>         io_executer_;
     std::map<RequestId, PendingReply>              pending_replies_;
-    std::set<RequestId>                            outgoing_request_ids_;
     unsigned short                                 port_;
+    std::chrono::seconds                           request_timeout_;
     std::set<utils::CompletionToken>               running_jobs_;
+    std::set<std::shared_ptr<utils::Timer>>        timeouts_;
     std::mutex                                     mutex_;
 
     friend class RequestDeserializationResultReceptorImpl;
